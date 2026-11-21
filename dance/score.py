@@ -1,19 +1,21 @@
 """Step 4: features -> unusualness scores, offline and live.
 
 A score is a percentile against the training clips, 0 to 1. So the p90
-threshold is the constant 0.90. All scores come from the trained model in
-`dance.spiky`. When the trained artefacts are missing, the program stops with
-an error. It never invents a score.
+threshold is the constant 0.90. All scores come from a trained scorer:
+`--scorer spiky` (the spiking network in `dance.spiky`) or `--scorer baseline`
+(the statistical distance in `dance.baseline`). When the trained artefacts of
+the selected scorer are missing, the program stops with an error. It never
+invents a score.
 
 Offline:
     python -m dance.score SOURCE [--out scores.npy] [--models models/dance]
-        [--poses poses.npy] [--dancers N] [--max-seconds S]
+        [--scorer spiky|baseline] [--poses poses.npy] [--dancers N] [--max-seconds S]
     SOURCE is a video clip or an eventify .h5 events file.
     Writes scores.npy (float32, shape (bins, dancers)) and scores.json.
 
 Live:
     python -m dance.score --live [--device 0] [--models models/dance]
-        [--dancers N] [--duration S] [--warmup-frames 30] [--json]
+        [--scorer spiky|baseline] [--dancers N] [--duration S] [--warmup-frames 30] [--json]
     Reads the webcam through eventify. Gives one update about 10 times a second.
 
 Dancer numbers are column numbers of the scores array. They start at 0. With
@@ -38,27 +40,39 @@ from .contracts import BIN_MS, FEATURE_DIM
 from .features import Regions, clip_features, extract_features, find_poses
 
 DEFAULT_MODELS = "models/dance"
+SCORERS = ("spiky", "baseline")
+DEFAULT_SCORER = "spiky"
 P90 = 0.90              # scores are percentiles, so the p90 threshold is constant
 EMIT_EVERY = 3          # windows per live update: 3 * 33 ms = about 10 updates a second
 BUFFER_WINDOWS = 90     # live context given to the model: about 3 seconds
 ROLL_WINDOWS = 30       # the live rolling score is the mean of the last second
-TRAIN_HINT = "Run `python -m dance.train` first."
+TRAIN_HINT = {
+    "spiky": "Run `python -m dance.train` first.",
+    "baseline": "Run `python -m dance.baseline` first.",
+}
 
 
 # --------------------------------------------------------------------- model
 
-def load(model_dir: str | Path = DEFAULT_MODELS) -> Any:
-    """Load the trained model. Raise FileNotFoundError if artefacts are missing.
+def load(model_dir: str | Path = DEFAULT_MODELS, scorer: str = DEFAULT_SCORER) -> Any:
+    """Load the trained scorer. Raise FileNotFoundError if artefacts are missing.
 
+    Only the selected scorer is tried. One scorer never stands in for the other.
     The import is inside the function, so this module imports without the model.
     """
-    from dance.spiky import load_model
+    if scorer == "spiky":
+        from dance.spiky import load_model
+    elif scorer == "baseline":
+        from dance.baseline import load_model
+    else:
+        raise ValueError(f"unknown scorer {scorer!r}; choose one of {SCORERS}")
 
     try:
         return load_model(model_dir)
     except FileNotFoundError as err:
         raise FileNotFoundError(
-            f"trained model artefacts are missing in '{model_dir}' ({err}). {TRAIN_HINT}"
+            f"trained artefacts of the {scorer} scorer are missing in '{model_dir}' ({err}). "
+            f"{TRAIN_HINT[scorer]}"
         ) from err
 
 
@@ -182,6 +196,7 @@ def score_clip(
     max_seconds: float | None = None,
     events_out: str | Path | None = None,
     model: Any = None,
+    scorer: str = DEFAULT_SCORER,
 ) -> tuple[np.ndarray, dict]:
     """Clip or eventify .h5 file -> ((bins, dancers) scores, summary).
 
@@ -191,13 +206,14 @@ def score_clip(
     if not Path(source).exists():
         raise FileNotFoundError(f"source not found: {source}")
     if model is None:
-        model = load(model_dir)
+        model = load(model_dir, scorer)
     pose_array = load_poses(source, poses)
     features, info = clip_features(source, pose_array, dancers, max_seconds, events_out)
     scores, summary = score_features(model, features)
     summary.update(
         source=str(source),
         models=str(model_dir),
+        scorer=scorer,
         regions=info["regions"],
         sensor_shape=info["sensor_shape"],
     )
@@ -314,17 +330,19 @@ def score_live(
     warmup_frames: int = 30,
     as_json: bool = False,
     model: Any = None,
+    scorer: str = DEFAULT_SCORER,
 ) -> np.ndarray:
     """Webcam -> rolling scores on stdout. Returns the scores of the session."""
     if model is None:
-        model = load(model_dir)
+        model = load(model_dir, scorer)
     info = stream.probe_source(device)
     regions = Regions(info.sensor_shape, None, dancers)
     windows = source_windows(device, info, duration_s=duration_s, warmup_frames=warmup_frames, live=True)
     emit = json_emitter(sys.stdout) if as_json else line_emitter(sys.stdout)
     width, height = info.sensor_size
     print(
-        f"live: device {device}, sensor {width}x{height}, {dancers} dancer(s). Press Ctrl-C to stop.",
+        f"live: device {device}, sensor {width}x{height}, {dancers} dancer(s), {scorer} scorer. "
+        "Press Ctrl-C to stop.",
         file=sys.stderr,
     )
     session = live_loop(windows, model, regions, emit)
@@ -352,6 +370,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("source", nargs="?", help="video clip or eventify .h5 events file (offline mode)")
     p.add_argument("--out", default="scores.npy", help="scores file; the summary gets the same stem with .json")
     p.add_argument("--models", default=DEFAULT_MODELS, help="folder with the trained artefacts")
+    p.add_argument("--scorer", choices=SCORERS, default=DEFAULT_SCORER, help="which trained scorer to use")
     p.add_argument("--poses", default=None, help="poses.npy; default: look next to the source")
     p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when there are no poses")
     p.add_argument("--max-seconds", type=float, default=None, help="offline: use only the first S seconds")
@@ -375,6 +394,7 @@ def main(argv: list[str] | None = None) -> None:
                 duration_s=args.duration,
                 warmup_frames=args.warmup_frames,
                 as_json=args.json,
+                scorer=args.scorer,
             )
             return
         scores, summary = score_clip(
@@ -383,6 +403,7 @@ def main(argv: list[str] | None = None) -> None:
             poses=args.poses,
             dancers=args.dancers,
             max_seconds=args.max_seconds,
+            scorer=args.scorer,
         )
     except FileNotFoundError as err:
         stop(str(err))

@@ -44,7 +44,7 @@ class FakeModel:
 def fake_model(monkeypatch) -> FakeModel:
     """Make `score.load` return a FakeModel, as if training was done."""
     model = FakeModel()
-    monkeypatch.setattr(score, "load", lambda model_dir=None: model)
+    monkeypatch.setattr(score, "load", lambda model_dir=None, scorer=None: model)
     return model
 
 
