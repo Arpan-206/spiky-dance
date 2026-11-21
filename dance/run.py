@@ -5,14 +5,20 @@
     python -m dance.run EPISODE_DIR [same options]
 
 All output for a clip goes in `<episodes-dir>/<clip name>/`. The clip name is
-the file name without its suffix. With an episode folder as the target, the
-clip is the video file in that folder. If the folder has no video but has an
-`events.h5`, the scores come from that file.
+the file name without its suffix.
+
+With an episode folder as the target, the clip is `clip.mp4` in that folder.
+Other videos in the folder (skeleton.mp4, robot.mp4, panel.mp4, preview.mp4)
+are then not used. If there is no `clip.mp4`, the one other video is the
+clip; more than one other video is an error. If the folder has no video but
+has an `events.h5`, the scores come from that file.
 
 Read from the episode folder, when present (the pose build writes them):
     poses.npy   (frames, dancers, 17, 3), pixels of the ORIGINAL video,
                 leftmost dancer = 0, missing joints have confidence 0
-    meta.json   frame rate, width, height, frame count of the original video
+    meta.json   fps, width, height, n_frames, dancers, clip_id of the original
+                video. `dancers` is the number of vertical strips when
+                --dancers is not given and there is no poses.npy.
 
 Written to the episode folder:
     events.h5          eventify HDF5 export, coordinates in sensor pixels
@@ -38,6 +44,7 @@ from typing import Any
 import numpy as np
 
 from . import score, stream
+from .features import read_pose_meta
 
 EVENTS_NAME = "events.h5"
 SCORES_NAME = "scores.npy"
@@ -45,6 +52,8 @@ SYNC_NAME = "sync.npy"
 SCORES_META_NAME = "scores_meta.json"
 POSES_NAME = "poses.npy"
 POSE_META_NAME = "meta.json"
+CLIP_NAME = "clip.mp4"
+PREVIEW_NAME = "preview.mp4"
 DEFAULT_EPISODES = "episodes"
 
 
@@ -55,10 +64,18 @@ def resolve_episode(target: str | Path, episodes_dir: str | Path = DEFAULT_EPISO
     """
     target = Path(target)
     if target.is_dir():
-        clips = sorted(f for f in target.iterdir() if f.suffix.lower() in stream.VIDEO_SUFFIXES)
+        if (target / CLIP_NAME).is_file():
+            return target, target / CLIP_NAME, True
+        clips = sorted(
+            f for f in target.iterdir()
+            if f.suffix.lower() in stream.VIDEO_SUFFIXES and f.name != PREVIEW_NAME
+        )
         if len(clips) > 1:
             names = ", ".join(c.name for c in clips)
-            raise ValueError(f"episode folder {target} has more than one video: {names}")
+            raise FileNotFoundError(
+                f"episode folder {target} has no {CLIP_NAME} and more than one other video: {names}. "
+                f"Name the source clip {CLIP_NAME}."
+            )
         if clips:
             return target, clips[0], True
         events = target / EVENTS_NAME
@@ -78,12 +95,16 @@ def run_clip(
     episodes_dir: str | Path = DEFAULT_EPISODES,
     model_dir: str | Path = score.DEFAULT_MODELS,
     *,
-    dancers: int = 1,
+    dancers: int | None = None,
     max_seconds: float | None = None,
     model: Any = None,
     scorer: str = score.DEFAULT_SCORER,
 ) -> dict:
-    """Clip or episode folder -> events.h5, scores.npy, scores_meta.json. Returns the summary."""
+    """Clip or episode folder -> events.h5, scores.npy, scores_meta.json. Returns the summary.
+
+    `dancers` is the number of vertical strips when the episode has no
+    poses.npy. Without it, the `dancers` value of meta.json is used, else 1.
+    """
     start = time.perf_counter()
     episode, source, is_clip = resolve_episode(target, episodes_dir)
     if model is None:
@@ -93,6 +114,11 @@ def run_clip(
     poses_path = episode / POSES_NAME
     meta_path = episode / POSE_META_NAME
     has_poses = poses_path.exists()
+    pose_meta = read_pose_meta(meta_path) if meta_path.exists() else None
+    dancers_from = "--dancers"
+    if dancers is None:
+        from_meta = pose_meta["dancers"] if pose_meta else None
+        dancers, dancers_from = (from_meta, POSE_META_NAME) if from_meta else (1, "the default")
     episode.mkdir(parents=True, exist_ok=True)
     events_path = episode / EVENTS_NAME
     scores, sync, summary = score.score_clip_full(
@@ -100,7 +126,7 @@ def run_clip(
         model_dir,
         poses=poses_path if has_poses else None,
         auto_poses=False,
-        pose_meta=meta_path if has_poses and meta_path.exists() else None,
+        pose_meta=pose_meta if has_poses else None,
         dancers=dancers,
         max_seconds=max_seconds,
         events_out=events_path if is_clip else None,
@@ -136,6 +162,7 @@ def run_clip(
     (episode / SCORES_META_NAME).write_text(json.dumps(scores_meta, indent=2) + "\n")
 
     summary.update(
+        dancers_from=dancers_from,
         episode=str(episode),
         events_file=str(events_path),
         scores_file=str(episode / SCORES_NAME),
@@ -151,7 +178,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--episodes-dir", default=DEFAULT_EPISODES, help="for a clip: output goes in EPISODES_DIR/<clip name>/")
     p.add_argument("--models", default=score.DEFAULT_MODELS, help="folder with the trained artefacts")
     p.add_argument("--scorer", choices=score.SCORERS, default=score.DEFAULT_SCORER, help="which trained scorer to use")
-    p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when the episode has no poses.npy")
+    p.add_argument("--dancers", type=int, default=None,
+                   help="number of vertical strips when the episode has no poses.npy; "
+                        "default: `dancers` in meta.json, else 1")
     p.add_argument("--max-seconds", type=float, default=None, help="use only the first S seconds")
     p.add_argument("--preview", action="store_true", help="also write preview.mp4 in the episode folder")
     args = p.parse_args(argv)
@@ -177,6 +206,8 @@ def main(argv: list[str] | None = None) -> None:
     else:
         print("sync: not written. The sync score needs 2 or more dancers.")
     print(score.regions_line(summary))
+    if summary["regions"] == "strips":
+        print(f"dancer count: {len(summary['dancers'])}, from {summary['dancers_from']}")
     print(f"scores meta: {summary['scores_meta_file']}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")
     if args.preview:

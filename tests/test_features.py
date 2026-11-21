@@ -177,7 +177,7 @@ def test_clip_features_scale_poses_with_the_meta_file(tmp_path):
     meta_file = tmp_path / "meta.json"
     meta_file.write_text('{"frame_rate": 30, "width": 640, "height": 480, "frame_count": 60}')
     pose_meta = read_pose_meta(meta_file)
-    assert pose_meta == {"width": 640, "height": 480, "fps": 30.0, "frames": 60}
+    assert pose_meta == {"width": 640, "height": 480, "fps": 30.0, "frames": 60, "dancers": None, "clip_id": None}
 
     poses = np.zeros((60, 2, 17, 3), dtype=np.float32)
     poses[:, 0, :, 0] = np.linspace(92, 548, 17)       # around the moving square, original pixels

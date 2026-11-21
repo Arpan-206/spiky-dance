@@ -5,7 +5,7 @@ Unchanged: `SNNOutput`, `SpikyNet` (layers, sizes, BETA, thresholds, weight
 init, `forward`), `per_timestep_attribution`, `ecdf_rescale`.
 
 Changes for spiky-dance:
-  1. `NUM_FEATURES` comes from `dance.contracts.FEATURE_DIM` (13). The original
+  1. `NUM_FEATURES` comes from `dance.contracts.FEATURE_DIM` (26). The original
      imported it from the code-review feature module.
   2. Removed `temporal_spike_attribution`. Only the line-independent path of
      the original used it. That path is not vendored.

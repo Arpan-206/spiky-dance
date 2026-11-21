@@ -311,65 +311,74 @@ def train(
 # ---- Command line -----------------------------------------------------------
 
 def find_clips(clips_dir: str | Path) -> list[Path]:
-    """Video files and eventify HDF5 files in a folder, sorted by name.
+    """Video files and eventify HDF5 files directly in a folder, sorted by name.
 
     If a video and an events file have the same stem, only the events file is
     used (it is the same clip, already converted).
     """
-    from dance import stream
+    from dance.evaluate import clip_files
 
     clips_dir = Path(clips_dir)
     if not clips_dir.is_dir():
         raise FileNotFoundError(f"clips folder not found: {clips_dir}")
-    suffixes = set(stream.VIDEO_SUFFIXES) | set(stream.HDF5_SUFFIXES)
-    found = sorted(
-        p for p in clips_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in suffixes and not p.name.startswith(".")
-    )
-    events_stems = {p.stem for p in found if p.suffix.lower() in stream.HDF5_SUFFIXES}
-    return [
-        p for p in found
-        if p.suffix.lower() in stream.HDF5_SUFFIXES or p.stem not in events_stems
-    ]
+    return clip_files(clips_dir)
 
 
-def build_features(paths: list[Path], dancers: int, max_seconds: float | None, jobs: int) -> list[tuple[np.ndarray, dict]]:
-    """Features of all clips. Clips run in parallel worker processes."""
-    from concurrent.futures import ProcessPoolExecutor
+def choose_held_out(clips: list, holdout: list[str] | None, no_holdout: bool) -> list:
+    """The clean clips that are held out of the training.
 
-    from dance.features import clip_features_job
-
-    work = [(str(path), dancers, max_seconds) for path in paths]
-    if jobs <= 1 or len(work) == 1:
-        return [clip_features_job(job) for job in work]
-    with ProcessPoolExecutor(max_workers=min(jobs, len(work))) as pool:
-        return list(pool.map(clip_features_job, work))
+    `holdout` lists file names or name prefixes. A prefix holds out a whole
+    video that was cut into several clips. Without `holdout`, the last clean
+    clip by name of each dancer count is held out, when that count has 2 or
+    more clean clips. Bad clips are never candidates: they are never trained on.
+    """
+    clean = [c for c in clips if c.role != "bad"]
+    if no_holdout:
+        return []
+    if holdout:
+        held = [c for c in clean if any(c.path.name == h or c.path.name.startswith(h) for h in holdout)]
+        missing = [h for h in holdout if not any(c.path.name == h or c.path.name.startswith(h) for c in clean)]
+        if missing:
+            raise ValueError(f"no clean clip matches --holdout {', '.join(missing)}")
+        return held
+    held = []
+    for group in sorted({c.group for c in clean}):
+        members = [c for c in clean if c.group == group]
+        if len(members) >= 2:
+            held.append(members[-1])
+    return held
 
 
 def main(argv: list[str] | None = None) -> None:
-    """One command to train again on a folder of clean clips.
+    """One command to train again on clean clips, with a held-out check.
 
-    One clip is held out. The scorers are fitted on the other clips. Then the
-    held-out clip is scored, so you can see that a normal clip gets a mean score
-    near 0.4 to 0.5 and about 10 percent of its bins above the threshold.
+    Folder layout:
+        CLIPS_DIR/1p/, CLIPS_DIR/2p/, CLIPS_DIR/3p/   clips with 1, 2, 3 dancers
+        CLIPS_DIR/*.mp4                               flat form, `--dancers N` dancers
+
+    A clip whose name starts with `bad_` is never used for training. It is
+    scored after the training and shown in the table. Some clean clips are
+    held out, so the table shows how clips score that the training did not see.
     """
     import os
     import time
 
     p = argparse.ArgumentParser(
-        description="Train the scorers on a folder of clean (normal) clips, with a held-out check."
+        description="Train the scorers on clean (normal) clips, with a held-out check and a good/bad table."
     )
-    p.add_argument("clips_dir", help="folder with video clips or eventify .h5 files")
+    p.add_argument("clips_dir", nargs="+",
+                   help="one or more folders, each with sub-folders 1p, 2p, 3p or with clips directly in it")
     p.add_argument("--out", default="models/dance", help="folder for the model artefacts")
     p.add_argument("--scorer", choices=("baseline", "spiking", "both"), default="both",
                    help="which scorer to fit")
     p.add_argument("--dancers", type=int, default=1,
-                   help="number of vertical strips when a clip has no poses file")
+                   help="flat form: number of vertical strips when a clip has no poses file")
     p.add_argument("--max-seconds", type=float, default=None,
                    help="use only the first S seconds of each clip")
-    p.add_argument("--holdout", default=None,
-                   help="file name of the clip to hold out; default: the last clip by name")
-    p.add_argument("--no-holdout", action="store_true", help="train on all clips, no held-out check")
+    p.add_argument("--holdout", action="append", default=None,
+                   help="file name, or start of the file name, of clean clips to hold out; can be given "
+                        "more than once; default: the last clean clip by name of each dancer count")
+    p.add_argument("--no-holdout", action="store_true", help="train on all clean clips, no held-out check")
     p.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1),
                    help="worker processes for the event and feature work")
     p.add_argument("--epochs", type=int, default=EPOCHS, help="spiking scorer: training epochs")
@@ -379,77 +388,71 @@ def main(argv: list[str] | None = None) -> None:
                         "shift: the input encoding of Mr. Spiky, opt-in")
     args = p.parse_args(argv)
 
-    from dance import baseline
+    from dance import baseline, evaluate
 
     start = time.perf_counter()
     try:
-        paths = find_clips(args.clips_dir)
-    except FileNotFoundError as err:
+        clips = evaluate.collect_clips(args.clips_dir, args.dancers)
+        if not clips:
+            raise SystemExit(
+                f"error: no clips in {', '.join(args.clips_dir)}. Put video files or eventify .h5 files "
+                "in that folder, or in its sub-folders 1p, 2p, 3p."
+            )
+        held = choose_held_out(clips, args.holdout, args.no_holdout)
+    except (FileNotFoundError, ValueError) as err:
         raise SystemExit(f"error: {err}")
-    if not paths:
-        raise SystemExit(
-            f"error: no clips in {args.clips_dir}. "
-            "Put video files or eventify .h5 files in that folder."
-        )
+    held_paths = {str(c.path) for c in held}
+    train_clips = [c for c in clips if c.role != "bad" and str(c.path) not in held_paths]
+    bad_clips = [c for c in clips if c.role == "bad"]
+    if not train_clips:
+        raise SystemExit("error: no clean clip is left for training. Give more clean clips or use --no-holdout.")
+    if not held and not args.no_holdout:
+        print("No held-out check: a dancer count needs 2 or more clean clips for it.")
 
-    held: Path | None = None
-    if not args.no_holdout:
-        if args.holdout is not None:
-            matches = [q for q in paths if q.name == args.holdout]
-            if not matches:
-                raise SystemExit(f"error: held-out clip {args.holdout!r} is not in {args.clips_dir}")
-            held = matches[0]
-        elif len(paths) >= 2:
-            held = paths[-1]
-        else:
-            print("Only 1 clip: no held-out check. Give 2 or more clips for the check.")
-
-    built = build_features(paths, args.dancers, args.max_seconds, args.jobs)
-    clips: list[np.ndarray] = []
-    regions: list[str] = []
-    held_features: np.ndarray | None = None
-    for path, (f, info) in zip(paths, built):
-        role = "held out" if path == held else "train"
-        print(f"{path.name}: {f.shape[0]} bins, {f.shape[1]} dancer(s), regions from {info['regions']}, {role}")
-        if path == held:
-            held_features = f
-        else:
-            clips.append(f)
-            regions.append(str(info["regions"]))
+    evaluate.add_features(clips, args.max_seconds, args.jobs)
+    roles = {}
+    for c in clips:
+        role = "bad" if c.role == "bad" else ("held-out clean" if str(c.path) in held_paths else "train")
+        roles[str(c.path)] = role
+        print(f"{c.group}/{c.path.name}: {c.features.shape[0]} bins, {c.features.shape[1]} dancer(s), {role}")
     features_s = time.perf_counter() - start
 
-    rows: list[tuple[str, float, float]] = []
+    feature_clips = [c.features for c in train_clips]
+    models: dict[str, object] = {}
     try:
-        if args.scorer in ("baseline", "both"):
-            baseline.train(clips, args.out)
-            if held_features is not None:
-                s = baseline.load_model(args.out).score(held_features)
-                rows.append(("baseline", float(s.mean()), float((s >= 0.90).mean())))
         if args.scorer in ("spiking", "both"):
             from dance.spiky import load_model
 
-            train(clips, args.out, epochs=args.epochs, seed=args.seed, encoding=args.encoding,
-                  regions=regions, verbose=False)
-            if held_features is not None:
-                s = load_model(args.out).score(held_features)
-                rows.append(("spiking", float(s.mean()), float((s >= 0.90).mean())))
+            train(feature_clips, args.out, epochs=args.epochs, seed=args.seed, encoding=args.encoding,
+                  regions=None, verbose=False)
+            models["spiking"] = load_model(args.out)
+        if args.scorer in ("baseline", "both"):
+            baseline.train(feature_clips, args.out)
+            models["baseline"] = baseline.load_model(args.out)
     except (ValueError, DegenerateCalibrationError) as err:
         raise SystemExit(f"error: {err}")
 
     total_s = time.perf_counter() - start
-    print(f"\nModels saved in {args.out}. Trained on {len(clips)} clip(s).")
-    if args.scorer in ("spiking", "both"):
+    counts = ", ".join(f"{sum(1 for c in train_clips if c.group == g)} with {g[0]} dancer(s)"
+                       for g in sorted({c.group for c in train_clips}))
+    print(f"\nModels saved in {args.out}. Trained on {len(train_clips)} clean clip(s): {counts}.")
+    if "spiking" in models:
         meta = json.loads((Path(args.out) / THRESHOLD_FILE).read_text())
         act = meta["activity"]
         print(f"Spiking scorer: encoding {meta['encoding']}, neurons that fire per bin: "
               f"hidden {act['hidden']:.1%}, output {act['output']:.1%} (target 5% to 15%).")
-    if rows:
-        print(f"\nHeld-out normal clip: {held.name}. It was not used for training.")
-        print("| Scorer | Mean score | Fraction above p90 |")
-        print("|---|---|---|")
-        for name, mean, fraction in rows:
-            print(f"| {name} | {mean:.3f} | {fraction:.3f} |")
-        print("A normal clip must give a mean near 0.4 to 0.5 and a fraction near 0.10.")
+    shown = held + bad_clips
+    if shown:
+        print('\nClips that the training did not use. Each cell is "mean score / fraction of bins above p90".')
+        print(evaluate.report(shown, models, roles))
+        print("\nExpected for a held-out clean clip: a mean near 0.4 to 0.5 and a fraction near 0.10.")
+        for clip in held:
+            for name, model in models.items():
+                s = np.asarray(model.score(clip.features))
+                if not (0.30 <= float(s.mean()) <= 0.60) or float((s >= 0.90).mean()) > 0.25:
+                    print(f"NOTE: {clip.group}/{clip.path.name} is outside that range for the {name} scorer "
+                          f"({s.mean():.3f} / {(s >= 0.90).mean():.3f}). It differs from the training "
+                          "clips, or there are too few training clips.")
     print(f"Time: {total_s:.1f} s (events and features {features_s:.1f} s).")
 
 

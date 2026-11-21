@@ -119,13 +119,33 @@ def read_hdf5(path: str | Path) -> tuple[np.ndarray, tuple[int, int]]:
     return events, (h, w)
 
 
-def save_hdf5(path: str | Path, chunks: list[np.ndarray], sensor_shape: tuple[int, int]) -> int:
-    """Write event chunks with eventify's `write_hdf5`. Returns the event count."""
+def save_hdf5(
+    path: str | Path,
+    chunks: list[np.ndarray],
+    sensor_shape: tuple[int, int],
+    duration_us: int | None = None,
+) -> int:
+    """Write event chunks with eventify's `write_hdf5`. Returns the event count.
+
+    `duration_us` is the length of the clip. It is saved as one more attribute
+    of the `/events` group, `duration_us`. The layout of eventify is unchanged.
+    The file needs it because a clip can end without events (a freeze).
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     events = np.concatenate(chunks) if chunks else np.zeros(0, dtype=EVENT_DTYPE)
     write_hdf5(path, events, sensor_shape=sensor_shape)
+    if duration_us is not None:
+        with h5py.File(path, "a") as f:
+            f["events"].attrs["duration_us"] = np.int64(duration_us)
     return int(events.size)
+
+
+def read_hdf5_duration(path: str | Path) -> int | None:
+    """The clip length in microseconds, if the file has it. Plain eventify exports do not."""
+    with h5py.File(path, "r") as f:
+        value = f["events"].attrs.get("duration_us")
+    return None if value is None else int(value)
 
 
 class WindowBinner:
