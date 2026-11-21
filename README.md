@@ -76,23 +76,41 @@ The cause: Mr. Spiky adds 0.5 to each whitened value and clamps it to 0..1. So e
 
 ## Commands
 
-Train on a folder of clean clips. This is one command for both scorers. All clips in one folder must have the same number of dancers.
+Train on clean clips. This is one command for both scorers and for all dancer counts.
 
 ```bash
-uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1
+uv run python -m dance.train CLIPS_DIR --out models/dance                 # sub-folders 1p, 2p, 3p
+uv run python -m dance.train CLIPS_DIR OTHER_DIR --out models/dance       # more than one folder
+uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1     # flat form: clips directly in the folder
 ```
 
-The command holds out one clip, fits on the others, and prints the scores of the held-out clip. For a normal clip, expect a mean near 0.4 to 0.5 and a fraction near 0.10. The command prints a note when the held-out clip is outside the range 0.30 to 0.60. That happens when the held-out clip differs from the training clips, or when there are few training clips.
+Folder layout:
 
-The models in `models/dance/` were trained with `--no-holdout`, so they use all clips. Options:
+| Path | Content |
+|---|---|
+| `CLIPS_DIR/1p/` | Clips with 1 dancer |
+| `CLIPS_DIR/2p/` | Clips with 2 dancers |
+| `CLIPS_DIR/3p/` | Clips with 3 dancers |
+| `clean_*.mp4` | A clean clip. Any name that does not start with `bad_` is also read as clean. |
+| `bad_*.mp4` | A clip of bad dancing. The training never uses it. |
+
+The command holds out some clean clips, fits on the others, and prints a table by dancer count: the held-out clean clips and the bad clips. For a held-out clean clip, expect a mean near 0.4 to 0.5 and a fraction near 0.10. The command prints a note when a held-out clip is outside the range 0.30 to 0.60. That happens when the clip differs from the training clips, or when there are few training clips.
+
+The models in `models/dance/` were trained with `--no-holdout`, so they use all clean clips. Options:
 
 | Option | Effect |
 |---|---|
 | `--scorer baseline` | Fit only the baseline. This is faster. `--scorer spiking` fits only the network. |
-| `--holdout NAME` | Hold out this clip. NAME is the file name with its suffix. The default is the last clip by name. |
-| `--no-holdout` | Train on all clips. No check is printed. |
+| `--holdout NAME` | Hold out the clean clips whose file name is NAME or starts with NAME. A start of a name holds out a whole video that was cut into clips. You can give the option more than once. The default is the last clean clip by name of each dancer count. |
+| `--no-holdout` | Train on all clean clips. No held-out check. |
 | `--max-seconds S` | Use only the first S seconds of each clip. |
 | `--encoding shift` | Spiking scorer: use the input encoding of Mr. Spiky. The default is `onoff`. |
+
+Print the same table for trained models, without training:
+
+```bash
+uv run python -m dance.evaluate CLIPS_DIR --models models/dance
+```
 
 Score one clip. This is the one-command path. All output goes in the episode folder `episodes/<clip name>/`.
 
@@ -232,6 +250,8 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 | `dance/sync.py` | Sync score between dancers, no training |
 | `dance/spiky/` | Network and calibration, copied from Mr. Spiky |
 | `dance/train.py` | Training of both scorers on clean clips |
+| `dance/evaluate.py` | Good/bad table by dancer count for trained models |
+| `data/youtube_clips.csv` | URLs and cut times of the YouTube clips. No video is in the repo. |
 | `dance/score.py` | Scoring, offline and live |
 | `dance/run.py` | One command for a clip |
 | `dance/preview.py` | Fallback preview video and live preview window |
