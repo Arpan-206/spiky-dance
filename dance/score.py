@@ -41,15 +41,12 @@ from .features import Regions, add_deltas, base_features, clip_features, find_po
 
 DEFAULT_MODELS = "models/dance"
 SCORERS = ("spiking", "baseline")
-DEFAULT_SCORER = "spiking"
+DEFAULT_SCORER = "baseline"
 P90 = 0.90              # scores are percentiles, so the p90 threshold is constant
 EMIT_EVERY = 3          # windows per live update: 3 * 33 ms = about 10 updates a second
 BUFFER_WINDOWS = 90     # live context given to the model: about 3 seconds
 ROLL_WINDOWS = 30       # the live rolling score is the mean of the last second
-TRAIN_HINT = {
-    "spiking": "Run `python -m dance.train` first.",
-    "baseline": "Run `python -m dance.baseline` first.",
-}
+TRAIN_HINT = "Run `python -m dance.train CLIPS_DIR` first."
 
 
 # --------------------------------------------------------------------- model
@@ -72,7 +69,7 @@ def load(model_dir: str | Path = DEFAULT_MODELS, scorer: str = DEFAULT_SCORER) -
     except FileNotFoundError as err:
         raise FileNotFoundError(
             f"trained artefacts of the {scorer} scorer are missing in '{model_dir}' ({err}). "
-            f"{TRAIN_HINT[scorer]}"
+            f"{TRAIN_HINT}"
         ) from err
 
 

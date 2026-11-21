@@ -39,7 +39,7 @@ def test_held_out_normal_is_near_the_median_and_outliers_are_high(tmp_path):
 def test_missing_artefact_fails_loudly(tmp_path):
     with pytest.raises(FileNotFoundError):
         baseline.load_model(tmp_path)
-    with pytest.raises(FileNotFoundError, match="dance.baseline"):
+    with pytest.raises(FileNotFoundError, match="dance.train"):
         score.load(tmp_path, "baseline")
 
 
