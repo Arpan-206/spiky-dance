@@ -2,9 +2,12 @@
 
 This is the event and scoring half of the hackathon project.
 
-- Input: a video clip of 1 to 3 people who dance the macarena.
+- Input: a video clip of one person who dances the macarena.
 - Output 1: a simulated event-camera stream. An event camera reports only brightness changes, pixel by pixel.
-- Output 2: an "unusualness" score over time for each dancer.
+- Output 2: an "unusualness" score over time for the dancer.
+- Output 3: a leaderboard of several clips, with a display score from 0 to 100 for each dancer.
+
+**Scope: one dancer per clip.** The code for 2 and 3 dancers (vertical strips, `--dancers N`, the sync score, `sync.npy`) is still in the repo, but it is experimental. It is tested only on synthetic clips and on a few YouTube clips, and the sync score does not work on real clips. See `PROGRESS.md`.
 
 A spiking neural network gives the score. A spiking neural network is a network of neurons that send short pulses (spikes). The network learns only from clean macarena clips. A score near 1 means "this motion is unusual for the macarena".
 
@@ -78,7 +81,33 @@ The cause: Mr. Spiky adds 0.5 to each whitened value and clamps it to 0..1. So e
 
 ## Commands
 
-Train on clean clips. This is one command for both scorers and for all dancer counts.
+Leaderboard for several single-dancer clips. Score each clip first, then rank the episode folders.
+
+```bash
+uv run python -m dance.run take_a.mp4 --models models/room
+uv run python -m dance.run take_b.mp4 --models models/room
+uv run python -m dance.leaderboard episodes/take_a episodes/take_b --names "Ann" "Ben" --out episodes/leaderboard.png
+```
+
+It prints the ranked table and writes three files:
+
+| File | Content |
+|---|---|
+| `leaderboard.png` | The ranked table, 1280x720. Rank 1 is the best dance. |
+| `leaderboard.mp4` | The same picture as a 5 s video, for the final screen |
+| `leaderboard.json` | The ranking, and `lowest`: the episode with the lowest rank |
+
+The **display score** is a number from 0 to 100. A higher number means a better dance. It is a fixed remap of the mean unusualness of the clip: about 90 for a clean take and about 30 for a bad take. The remap is fitted with the leave-one-out test below and saved as `display.json` in the model folder. A model folder without that file uses default values, and the output says so. `scores.npy` does not change.
+
+Train on a few takes from one room and one camera, test each clean take against a model that did not see it, and fit the display remap:
+
+```bash
+uv run python -m dance.train ROOM_CLIPS --out models/room --leave-one-out
+```
+
+`ROOM_CLIPS` holds `clean_*` and `bad_*` clips of one dancer. The command prints the leave-one-out table, writes `display.json`, and saves models that use all clean clips.
+
+Train on clean clips. This is one command for both scorers. (Experimental: it also reads sub-folders for 2 and 3 dancers.)
 
 ```bash
 uv run python -m dance.train CLIPS_DIR --out models/dance                 # sub-folders 1p, 2p, 3p
@@ -229,7 +258,9 @@ For each dancer the commands report two numbers:
 - the mean score,
 - the fraction of bins above the threshold.
 
-## Sync score
+## Sync score (experimental)
+
+**The sync score does not work on real clips.** Real dancers in step get about 0.9, which means "no relation". It works only on the synthetic clips. Do not use it in the demo.
 
 The sync score needs no training. It needs 2 or more dancers.
 
@@ -257,6 +288,8 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 | `dance/score.py` | Scoring, offline and live |
 | `dance/run.py` | One command for a clip |
 | `dance/preview.py` | Fallback preview video and live preview window |
+| `dance/display.py` | Display score, 0 to 100, from the mean unusualness of a clip |
+| `dance/leaderboard.py` | Ranked table of single-dancer episodes: text, PNG, final-screen video |
 | `models/dance/` | Trained files, the default |
 | `models/room/` | Trained files for clips from the demo room |
 | `tests/` | Tests and synthetic clips |

@@ -108,6 +108,6 @@
     "output_mean": 0.10221467912197113,
     "output_max": 0.10624635219573975
   },
-  "train_seconds": 11.7,
+  "train_seconds": 11.83,
   "source": "STDP rule, whitening, attribution, calibration: github.com/Arpan-206/mr-spiky"
 }

@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 17:15.
+Last update: 17:28.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,28 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Scope since 17:20: one dancer per clip
+
+The demo and the README describe one dancer per clip. The code for 2 and 3 dancers and the sync score stay in the repo as experimental. No more work goes into them.
+
+New for the single-dancer demo:
+
+| Part | State |
+|---|---|
+| Display score, 0 to 100, higher is better (`dance/display.py`) | Runs, tested |
+| `dance.train --leave-one-out`: leave-one-out table and fit of the display remap | Runs, tested |
+| `dance.leaderboard`: ranked table as text, PNG, final-screen video and JSON | Runs, tested, tried on 4 real takes |
+| `scores_meta.json` has the new keys `models`, `display_score`, `display_remap_fitted` | Runs, tested |
+
+Leave-one-out on the room clips, by mean score: 9 of 9 bad takes are above the highest clean take, for both scorers.
+
+| Takes | Display score, spiking | Display score, baseline |
+|---|---|---|
+| 5 clean takes that the model did not see | 79, 89, 90, 91, 100 | 83, 91, 93, 90, 94 |
+| 9 bad takes | 60, 9, 69, 22, 59, 34, 4, 0, 12 | 55, 13, 69, 28, 61, 35, 0, 0, 10 |
+
+The display remap for `models/room`: a mean score of 0.511 gives 90 and a mean score of 0.744 gives 30 (spiking). `models/dance` has no fitted remap, so it uses default values.
 
 ## Bad takes from the room: a blind test (17:15)
 

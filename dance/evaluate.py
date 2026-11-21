@@ -38,6 +38,7 @@ class Clip:
     dancers: int
     role: str                          # "clean", "bad" or "other"
     features: np.ndarray | None = None
+    regions: str | None = None         # "poses" or "strips", set with the features
 
     @property
     def group(self) -> str:
@@ -100,6 +101,7 @@ def add_features(clips: list[Clip], max_seconds: float | None = None, jobs: int 
             results = list(pool.map(clip_features_job, work))
     for clip, (features, info) in zip(todo, results):
         clip.features = features
+        clip.regions = info["regions"]
         clip.dancers = features.shape[1]      # poses can give another count than the folder name
 
 

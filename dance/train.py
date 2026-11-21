@@ -349,6 +349,72 @@ def choose_held_out(clips: list, holdout: list[str] | None, no_holdout: bool) ->
     return held
 
 
+def leave_one_out(train_clips: list, bad_clips: list, scorers: tuple[str, ...], *, epochs: int,
+                  seed: int, encoding: str) -> tuple[str, dict[str, dict]]:
+    """Leave-one-out test and the display remap that follows from it.
+
+    For each clean clip: fit on all other clean clips, then score that clip and
+    all bad clips. Returns (report text, {scorer: display remap}).
+    """
+    import tempfile
+
+    from dance import baseline, display
+    from dance.spiky import load_model
+
+    clean = {name: [] for name in scorers}                          # (mean, fraction) of each unseen clean clip
+    bad = {name: {str(c.path): [] for c in bad_clips} for name in scorers}
+    for i, held in enumerate(train_clips):
+        rest = [c.features for j, c in enumerate(train_clips) if j != i]
+        with tempfile.TemporaryDirectory() as tmp:
+            models = {}
+            if "spiking" in scorers:
+                train(rest, tmp, epochs=epochs, seed=seed, encoding=encoding, regions=None, verbose=False)
+                models["spiking"] = load_model(tmp)
+            if "baseline" in scorers:
+                baseline.train(rest, tmp)
+                models["baseline"] = baseline.load_model(tmp)
+            for name, model in models.items():
+                s = np.asarray(model.score(held.features))
+                clean[name].append((float(s.mean()), float((s >= 0.90).mean())))
+                for c in bad_clips:
+                    sb = np.asarray(model.score(c.features))
+                    bad[name][str(c.path)].append((float(sb.mean()), float((sb >= 0.90).mean())))
+    lines = [f"\nLeave-one-out test: {len(train_clips)} clean clip(s), {len(bad_clips)} bad clip(s). "
+             'Each cell is "mean score / fraction of bins above p90".']
+    lines.append("| Clip | " + " | ".join(scorers) + " |")
+    lines.append("|---|" + "---|" * len(scorers))
+    for i, held in enumerate(train_clips):
+        cells = [f"{clean[n][i][0]:.3f} / {clean[n][i][1]:.3f}" for n in scorers]
+        lines.append(f"| clean, not seen: {held.path.stem} | " + " | ".join(cells) + " |")
+    bad_mean = {n: {k: tuple(np.mean(v, axis=0)) for k, v in bad[n].items()} for n in scorers}
+    for c in bad_clips:
+        cells = [f"{bad_mean[n][str(c.path)][0]:.3f} / {bad_mean[n][str(c.path)][1]:.3f}" for n in scorers]
+        lines.append(f"| bad: {c.path.stem} | " + " | ".join(cells) + " |")
+    cells = [f"{np.mean([m for m, _ in clean[n]]):.3f} / {np.mean([f for _, f in clean[n]]):.3f}" for n in scorers]
+    lines.append(f"| **clean, not seen, all {len(train_clips)}** | " + " | ".join(cells) + " |")
+    if bad_clips:
+        cells = [f"{np.mean([v[0] for v in bad_mean[n].values()]):.3f} / "
+                 f"{np.mean([v[1] for v in bad_mean[n].values()]):.3f}" for n in scorers]
+        lines.append(f"| **bad, all {len(bad_clips)}** | " + " | ".join(cells) + " |")
+        for n in scorers:
+            top = max(m for m, _ in clean[n])
+            above = sum(1 for v in bad_mean[n].values() if v[0] > top)
+            lines.append(f"{n}: {above} of {len(bad_clips)} bad clips have a mean score above the highest "
+                         f"clean clip ({top:.3f}).")
+    remaps = {n: display.fit_remap([m for m, _ in clean[n]], [v[0] for v in bad_mean[n].values()])
+              for n in scorers}
+    for n in scorers:
+        r = remaps[n]
+        lines.append(f"{n} display remap: mean {r['clean_ref']:.3f} -> {r['clean_display']:.0f}, "
+                     f"mean {r['bad_ref']:.3f} -> {r['bad_display']:.0f}.")
+        shown = [f"{display.display_score(m, r):.0f}" for m, _ in clean[n]]
+        lines.append(f"{n} display scores, clean clips not seen: {', '.join(shown)}.")
+        if bad_clips:
+            shown = [f"{display.display_score(v[0], r):.0f}" for v in bad_mean[n].values()]
+            lines.append(f"{n} display scores, bad clips: {', '.join(shown)}.")
+    return "\n".join(lines), remaps
+
+
 def main(argv: list[str] | None = None) -> None:
     """One command to train again on clean clips, with a held-out check.
 
@@ -379,6 +445,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="file name, or start of the file name, of clean clips to hold out; can be given "
                         "more than once; default: the last clean clip by name of each dancer count")
     p.add_argument("--no-holdout", action="store_true", help="train on all clean clips, no held-out check")
+    p.add_argument("--leave-one-out", action="store_true",
+                   help="for small sets: test each clean clip against a model fitted on the others, print the "
+                        "table, fit the display remap (display.json), then train the saved models on all clean clips")
     p.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1),
                    help="worker processes for the event and feature work")
     p.add_argument("--epochs", type=int, default=EPOCHS, help="spiking scorer: training epochs")
@@ -398,7 +467,7 @@ def main(argv: list[str] | None = None) -> None:
                 f"error: no clips in {', '.join(args.clips_dir)}. Put video files or eventify .h5 files "
                 "in that folder, or in its sub-folders 1p, 2p, 3p."
             )
-        held = choose_held_out(clips, args.holdout, args.no_holdout)
+        held = choose_held_out(clips, args.holdout, args.no_holdout or args.leave_one_out)
     except (FileNotFoundError, ValueError) as err:
         raise SystemExit(f"error: {err}")
     held_paths = {str(c.path) for c in held}
@@ -406,7 +475,9 @@ def main(argv: list[str] | None = None) -> None:
     bad_clips = [c for c in clips if c.role == "bad"]
     if not train_clips:
         raise SystemExit("error: no clean clip is left for training. Give more clean clips or use --no-holdout.")
-    if not held and not args.no_holdout:
+    if args.leave_one_out and len(train_clips) < 3:
+        raise SystemExit("error: --leave-one-out needs 3 or more clean clips.")
+    if not held and not args.no_holdout and not args.leave_one_out:
         print("No held-out check: a dancer count needs 2 or more clean clips for it.")
 
     evaluate.add_features(clips, args.max_seconds, args.jobs)
@@ -432,6 +503,16 @@ def main(argv: list[str] | None = None) -> None:
     except (ValueError, DegenerateCalibrationError) as err:
         raise SystemExit(f"error: {err}")
 
+    from dance import display
+
+    display.save_train_info(args.out, [c.regions or "strips" for c in train_clips])
+    loo_text = None
+    if args.leave_one_out:
+
+        loo_text, remaps = leave_one_out(train_clips, bad_clips, tuple(models), epochs=args.epochs,
+                                         seed=args.seed, encoding=args.encoding)
+        display.save_remaps(args.out, remaps)
+
     total_s = time.perf_counter() - start
     counts = ", ".join(f"{sum(1 for c in train_clips if c.group == g)} with {g[0]} dancer(s)"
                        for g in sorted({c.group for c in train_clips}))
@@ -441,7 +522,10 @@ def main(argv: list[str] | None = None) -> None:
         act = meta["activity"]
         print(f"Spiking scorer: encoding {meta['encoding']}, neurons that fire per bin: "
               f"hidden {act['hidden']:.1%}, output {act['output']:.1%} (target 5% to 15%).")
-    shown = held + bad_clips
+    if loo_text is not None:
+        print(loo_text)
+        print(f"Display remap saved in {Path(args.out) / 'display.json'}.")
+    shown = [] if args.leave_one_out else held + bad_clips
     if shown:
         print('\nClips that the training did not use. Each cell is "mean score / fraction of bins above p90".')
         print(evaluate.report(shown, models, roles))
