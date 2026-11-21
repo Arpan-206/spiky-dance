@@ -8,6 +8,8 @@ from eventify import EVENT_DTYPE, frame_stream
 from dance import stream
 from dance.features import (
     NUM_FEATURES,
+    add_deltas,
+    base_features,
     Regions,
     clip_features,
     extract_features,
@@ -23,7 +25,7 @@ def _check(feats: np.ndarray, dancers: int) -> None:
     assert np.isfinite(feats).all()
     assert feats[..., 0].min() >= 0 and feats[..., 0].max() <= 1
     assert np.abs(feats[..., 1]).max() <= 1
-    sums = feats[..., 4:].sum(axis=-1)
+    sums = feats[..., 4:13].sum(axis=-1)
     assert np.all(np.isclose(sums, 1, atol=1e-4) | np.isclose(sums, 0, atol=1e-6))
 
 
@@ -72,7 +74,7 @@ def test_feature_values_on_a_known_tensor():
     assert np.isclose(f[1], 0.5)                       # (3 - 1) / 4
     assert np.isclose(f[2], (3 * 80.5 + 10.5) / 4 / 90)
     assert np.isclose(f[3], (3 * 10.5 + 80.5) / 4 / 90)
-    grid = f[4:].reshape(3, 3)
+    grid = f[4:13].reshape(3, 3)
     assert np.isclose(grid[0, 2], 0.75) and np.isclose(grid[2, 0], 0.25)
 
 
@@ -133,3 +135,20 @@ def test_features_with_poses(moving_clip):
     regions = Regions((HEIGHT, WIDTH), poses, pose_fps=FPS)
     assert regions.boxes(0).shape == (2, 4)
     assert regions.boxes(10_000).shape == (2, 4)   # past the last pose frame
+
+
+def test_deltas_are_bin_to_bin_differences():
+    assert NUM_FEATURES == 26
+    rng = np.random.default_rng(0)
+    frames = rng.integers(0, 3, (6, 2, 30, 40)).astype(np.float32)
+    frames[3] = 0                                   # one empty bin
+    boxes = strip_boxes(40, 30, 2)
+    base = base_features(frames, boxes)
+    feats = extract_features(frames, boxes)
+    assert base.shape == (6, 2, 13) and feats.shape == (6, 2, 26)
+    np.testing.assert_array_equal(feats[..., :13], base)
+    assert np.all(feats[0, :, 13:] == 0)            # first bin: no delta
+    np.testing.assert_allclose(feats[1:, :, 13:], base[1:] - base[:-1], atol=1e-6)
+    np.testing.assert_array_equal(feats, add_deltas(base))
+    assert np.isfinite(feats).all()
+    assert np.abs(feats[..., 14]).max() <= 2 and np.abs(np.delete(feats[..., 13:], 1, axis=-1)).max() <= 1

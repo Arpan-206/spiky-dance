@@ -37,7 +37,7 @@ import numpy as np
 
 from . import stream
 from .contracts import BIN_MS, FEATURE_DIM
-from .features import Regions, clip_features, extract_features, find_poses
+from .features import Regions, add_deltas, base_features, clip_features, find_poses
 
 DEFAULT_MODELS = "models/dance"
 SCORERS = ("spiky", "baseline")
@@ -135,7 +135,7 @@ def summarise(scores: np.ndarray, threshold: float = P90) -> dict:
 
 
 def score_features(model: Any, features: np.ndarray) -> tuple[np.ndarray, dict]:
-    """(bins, dancers, 13) features -> ((bins, dancers) float32 scores, summary)."""
+    """(bins, dancers, FEATURE_DIM) features -> ((bins, dancers) float32 scores, summary)."""
     scores = model_scores(model, features)
     return scores, summarise(scores)
 
@@ -254,11 +254,11 @@ def live_loop(
     pending = 0
     try:
         for k, frame in enumerate(windows):
-            buffer.append(extract_features(frame, regions.boxes(k)))
+            buffer.append(base_features(frame, regions.boxes(k)))
             pending += 1
             if pending < emit_every:
                 continue
-            scores = model_scores(model, np.concatenate(buffer))
+            scores = model_scores(model, add_deltas(np.concatenate(buffer)))
             session.append(scores[-pending:])
             pending = 0
             rolling = scores[-roll_windows:].mean(axis=0)

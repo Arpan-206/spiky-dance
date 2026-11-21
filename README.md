@@ -75,7 +75,7 @@ uv run eventify export clip.mp4 events.h5 --interp 3 --sensor-size 320,180
 | Events | eventify `EVENT_DTYPE`: `x` int16, `y` int16, `t` int64 microseconds, `p` int8 (0 = OFF, 1 = ON) |
 | Events file | eventify HDF5 export: `/events/xs`, `ys`, `ts`, `ps`, attribute `sensor_shape` = (height, width) |
 | Binned events | float32 `(n_bins, 2, H, W)`, the layout of eventify `frame_stream`. Channel 0 = OFF, channel 1 = ON. |
-| Features | float32 `(bins, dancers, 13)` |
+| Features | float32 `(bins, dancers, 26)`: 13 features, then their 13 bin-to-bin deltas |
 | Scores | float32 `(bins, dancers)`, values 0 to 1 |
 | Poses (optional input) | `(frames, dancers, 17, 3)`, COCO keypoint order, columns x, y, confidence |
 
@@ -83,7 +83,9 @@ One bin is one 33 ms window. Bin `k` covers the time from `k * 33 ms` to `(k + 1
 
 Settings: sensor width at most 320 pixels, `interp=3` (3 interpolated sub-frames between real frames), threshold 0.05 (the eventify default).
 
-## The 13 features
+## The features
+
+There are 26 numbers for each bin and each dancer. The first 13 are the features in the table. The last 13 are their bin-to-bin deltas: the value in this bin minus the value in the bin before. The deltas of the first bin are 0.
 
 The features are computed inside the box of each dancer. Coordinates are normalised to the box.
 
@@ -121,7 +123,8 @@ For each dancer the commands report two numbers:
 |---|---|
 | `dance/contracts.py` | The interfaces between the parts |
 | `dance/stream.py` | Calls eventify and puts events into 33 ms windows |
-| `dance/features.py` | Binned events to 13 features |
+| `dance/features.py` | Binned events to features |
+| `dance/baseline.py` | Baseline scorer: a statistical distance, no network |
 | `dance/spiky/` | Network and calibration, copied from Mr. Spiky |
 | `dance/train.py` | Training on clean clips |
 | `dance/score.py` | Scoring, offline and live |

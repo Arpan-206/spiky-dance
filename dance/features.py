@@ -9,6 +9,9 @@ Dancer regions:
     the keypoint bounding box of each dancer, padded 15% on each side.
   - Without poses: equal vertical strips, one per dancer.
 
+There are 26 numbers per bin per dancer: 13 features, then their 13
+bin-to-bin deltas (feature[k] - feature[k - 1], 0 for the first bin).
+
 The 13 features, with coordinates normalised to the box:
    0      rate        log1p(count) / log1p(RATE_CAP * box area), 0..1
    1      polarity    (ON - OFF) / count, -1..1, 0 on an empty bin
@@ -17,7 +20,10 @@ The 13 features, with coordinates normalised to the box:
    4..12  grid        event counts in a 3x3 grid (row-major, top-left first),
                       normalised to sum to 1, all 0 on an empty bin
 
-Output shape: (bins, dancers, 13), float32.
+Output shape: (bins, dancers, 26), float32.
+
+A stream that comes window by window uses `base_features` on each window
+and `add_deltas` on the stacked rows. `extract_features` does both on one tensor.
 
 CLI: python -m dance.features clip.mp4|events.h5 features.npy [--poses poses.npy] [--dancers N]
 """
@@ -33,13 +39,16 @@ import numpy as np
 from . import stream
 from .contracts import FEATURE_DIM
 
+BASE_DIM = 13
 NUM_FEATURES = FEATURE_DIM
-FEATURE_NAMES: tuple[str, ...] = (
+BASE_NAMES: tuple[str, ...] = (
     "rate", "polarity", "centroid_x", "centroid_y",
     "grid_00", "grid_01", "grid_02",
     "grid_10", "grid_11", "grid_12",
     "grid_20", "grid_21", "grid_22",
 )
+FEATURE_NAMES: tuple[str, ...] = BASE_NAMES + tuple(f"d_{name}" for name in BASE_NAMES)
+assert FEATURE_DIM == 2 * BASE_DIM == len(FEATURE_NAMES)
 BOX_PAD = 0.15
 MIN_KEYPOINT_CONF = 0.3
 MIN_BOX_SIZE = 6       # pixels; the 3x3 grid needs at least 3
@@ -149,8 +158,31 @@ class Regions:
         return self._frames[min(max(frame, 0), len(self._frames) - 1)]
 
 
+def add_deltas(base: np.ndarray) -> np.ndarray:
+    """(bins, dancers, 13) features -> (bins, dancers, 26) with bin-to-bin deltas.
+
+    Delta k is base[k] - base[k - 1]. The delta of the first bin is 0.
+    """
+    base = np.asarray(base, dtype=np.float32)
+    if base.ndim != 3 or base.shape[2] != BASE_DIM:
+        raise ValueError(f"base features must have shape (bins, dancers, {BASE_DIM}), got {base.shape}")
+    out = np.zeros((*base.shape[:2], FEATURE_DIM), dtype=np.float32)
+    out[..., :BASE_DIM] = base
+    out[1:, :, BASE_DIM:] = base[1:] - base[:-1]
+    return out
+
+
 def extract_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
-    """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 13).
+    """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 26).
+
+    The contract function: 13 features and their 13 bin-to-bin deltas.
+    `boxes` is (dancers, 4) for all bins, or (n_bins, dancers, 4).
+    """
+    return add_deltas(base_features(frames, boxes))
+
+
+def base_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 13), no deltas.
 
     `boxes` is (dancers, 4) for all bins, or (n_bins, dancers, 4).
     """
@@ -163,7 +195,7 @@ def extract_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         boxes = np.broadcast_to(boxes, (n_bins, *boxes.shape))
     dancers = boxes.shape[1]
 
-    out = np.zeros((n_bins, dancers, NUM_FEATURES), dtype=np.float32)
+    out = np.zeros((n_bins, dancers, BASE_DIM), dtype=np.float32)
     out[..., 2:4] = 0.5
     for k in range(n_bins):
         off, on = frames[k, 0], frames[k, 1]
@@ -242,18 +274,18 @@ def clip_features(
     max_seconds: float | None = None,
     events_out: str | Path | None = None,
 ) -> tuple[np.ndarray, dict]:
-    """Clip (video) or eventify HDF5 file -> ((bins, dancers, 13) features, info).
+    """Clip (video) or eventify HDF5 file -> ((bins, dancers, 26) features, info).
 
     With `events_out`, the events are also saved as eventify HDF5.
     """
     keep: list[np.ndarray] | None = [] if events_out is not None else None
     frames, shape, fps, scale = _open_source(source, max_seconds, keep)
     regions = Regions(shape, poses, dancers, pose_fps=fps, scale=scale)
-    rows = [extract_features(frame, regions.boxes(k)) for k, frame in enumerate(frames)]
+    rows = [base_features(frame, regions.boxes(k)) for k, frame in enumerate(frames)]
     if rows:
-        feats = np.concatenate(rows)
+        feats = add_deltas(np.concatenate(rows))
     else:
-        feats = np.zeros((0, regions.dancers, NUM_FEATURES), dtype=np.float32)
+        feats = np.zeros((0, regions.dancers, FEATURE_DIM), dtype=np.float32)
     info = {
         "source": str(source),
         "sensor_shape": [int(shape[0]), int(shape[1])],
@@ -269,7 +301,7 @@ def clip_features(
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Clip or eventify HDF5 -> (bins, dancers, 13) features")
+    p = argparse.ArgumentParser(description="Clip or eventify HDF5 -> (bins, dancers, 26) features")
     p.add_argument("source", help="video clip or eventify .h5 events file")
     p.add_argument("out", help="output .npy path")
     p.add_argument("--poses", default=None, help="poses.npy; default: look next to the source")

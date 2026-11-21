@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-FEATURE_DIM = 13   # numbers per time bin per dancer
+FEATURE_DIM = 26   # numbers per time bin per dancer: 13 features + 13 deltas
 BIN_MS = 33        # length of one time bin, in milliseconds
 
 
@@ -35,6 +35,9 @@ def extract_features(binned: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         2      centroid_x  0..1, 0.5 on an empty bin
         3      centroid_y  0..1, 0.5 on an empty bin
         4..12  grid        3x3 event counts, row-major, sum 1; all 0 on an empty bin
+        13..25 deltas      feature[k] - feature[k - 1] for the 13 features above,
+                           in the same order. All 0 for the first bin of `binned`.
+                           Range -1..1, and -2..2 for the polarity delta (index 14).
     """
     raise NotImplementedError
 
