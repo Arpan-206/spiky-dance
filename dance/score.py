@@ -37,7 +37,10 @@ import numpy as np
 
 from . import stream
 from .contracts import BIN_MS, FEATURE_DIM
-from .features import Regions, add_deltas, base_features, clip_features, find_poses, read_pose_meta
+from .features import Regions, StreamFeatures, add_deltas, clip_features, find_poses, read_pose_meta
+from .sync import WINDOW_BINS as SYNC_WINDOW_BINS
+from .sync import WINDOW_S as SYNC_WINDOW_S
+from .sync import sync_score
 
 DEFAULT_MODELS = "models/dance"
 SCORERS = ("spiking", "baseline")
@@ -139,23 +142,59 @@ def score_features(model: Any, features: np.ndarray) -> tuple[np.ndarray, dict]:
 
 def format_table(summary: dict) -> str:
     """The ranked table of dancers, most unusual first."""
-    head = ("rank", "dancer", "mean score", "fraction above p90", "bins")
     by_dancer = {row["dancer"]: row for row in summary["dancers"]}
-    rows = [
-        (
+    with_sync = all("mean_sync" in row for row in summary["dancers"])
+    head = ("rank", "dancer", "mean score", "fraction above p90", "bins")
+    if with_sync:
+        head += ("mean sync",)
+    rows = []
+    for d in summary["ranking"]:
+        row = (
             str(by_dancer[d]["rank"]),
             str(d),
             f"{by_dancer[d]['mean_score']:.3f}",
             f"{by_dancer[d]['fraction_above_p90']:.3f}",
             str(by_dancer[d]["bins"]),
         )
-        for d in summary["ranking"]
-    ]
+        if with_sync:
+            row += (f"{by_dancer[d]['mean_sync']:.3f}",)
+        rows.append(row)
     widths = [max(len(head[i]), *(len(r[i]) for r in rows)) for i in range(len(head))]
     lines = ["  ".join(h.rjust(w) for h, w in zip(head, widths))]
     lines.append("  ".join("-" * w for w in widths))
     lines += ["  ".join(c.rjust(w) for c, w in zip(r, widths)) for r in rows]
     return "\n".join(lines)
+
+
+def add_sync(summary: dict, features: np.ndarray) -> np.ndarray | None:
+    """Compute the sync score and record it in the summary. None for 1 dancer.
+
+    The sync score needs no training: 1 minus the correlation between a dancer
+    and the median of the other dancers, over a rolling 2 s window. Range 0 to 2.
+    """
+    sync = sync_score(features)
+    if sync is None:
+        summary["sync"] = None
+        return None
+    means = sync.mean(axis=0, dtype=np.float64)
+    for row in summary["dancers"]:
+        row["mean_sync"] = float(means[row["dancer"]])
+    summary["sync"] = {
+        "window_s": SYNC_WINDOW_S,
+        "window_bins": SYNC_WINDOW_BINS,
+        "range": [0.0, 2.0],
+        "meaning": "1 - correlation with the median of the other dancers; 0 = in step, 1 = no relation, 2 = opposite",
+        "mean_per_dancer": [float(v) for v in means],
+    }
+    return sync
+
+
+def sync_path_for(scores_path: str | Path) -> Path:
+    """`scores.npy` -> `sync.npy`; another name gets `_sync` before the suffix."""
+    scores_path = Path(scores_path)
+    if scores_path.stem == "scores":
+        return scores_path.with_name("sync.npy")
+    return scores_path.with_name(scores_path.stem + "_sync.npy")
 
 
 def regions_line(summary: dict) -> str:
@@ -214,7 +253,13 @@ def load_pose_meta(source: str | Path, poses: Any = None, pose_meta: Any = None)
     return read_pose_meta(candidate) if candidate.exists() else None
 
 
-def score_clip(
+def score_clip(source: str | Path, model_dir: str | Path = DEFAULT_MODELS, **options: Any) -> tuple[np.ndarray, dict]:
+    """Clip or eventify .h5 file -> ((bins, dancers) scores, summary). See `score_clip_full`."""
+    scores, _, summary = score_clip_full(source, model_dir, **options)
+    return scores, summary
+
+
+def score_clip_full(
     source: str | Path,
     model_dir: str | Path = DEFAULT_MODELS,
     *,
@@ -226,8 +271,10 @@ def score_clip(
     scorer: str = DEFAULT_SCORER,
     pose_meta: str | Path | dict | None = None,
     auto_poses: bool = True,
-) -> tuple[np.ndarray, dict]:
-    """Clip or eventify .h5 file -> ((bins, dancers) scores, summary).
+) -> tuple[np.ndarray, np.ndarray | None, dict]:
+    """Clip or eventify .h5 file -> (scores, sync, summary).
+
+    `scores` and `sync` have shape (bins, dancers). `sync` is None for 1 dancer.
 
     With `auto_poses=False`, only the given `poses` are used. No poses file
     next to the source is looked for.
@@ -254,7 +301,8 @@ def score_clip(
         summary["pose_scale"] = info["pose_scale"]
     if events_out is not None:
         summary.update(events_file=str(events_out), events=info["events"])
-    return scores, summary
+    sync = add_sync(summary, features)
+    return scores, sync, summary
 
 
 # ---------------------------------------------------------------------- live
@@ -285,15 +333,18 @@ def live_loop(
     scores of the session, shape (bins, dancers), for the final table.
     """
     buffer: deque[np.ndarray] = deque(maxlen=buffer_windows)
+    tracker = StreamFeatures(regions)
     session: list[np.ndarray] = []
     pending = 0
     try:
         for k, frame in enumerate(windows):
-            buffer.append(base_features(frame, regions.boxes(k)))
+            buffer.append(tracker.push(frame))
             pending += 1
             if pending < emit_every:
                 continue
-            scores = model_scores(model, add_deltas(np.concatenate(buffer)))
+            features = add_deltas(np.concatenate(buffer))
+            scores = model_scores(model, features)
+            sync = sync_score(features)
             session.append(scores[-pending:])
             pending = 0
             rolling = scores[-roll_windows:].mean(axis=0)
@@ -303,6 +354,7 @@ def live_loop(
                     "scores": [round(float(v), 4) for v in rolling],
                     "latest": [round(float(v), 4) for v in scores[-1]],
                     "above": [bool(v >= threshold) for v in rolling],
+                    "sync": None if sync is None else [round(float(v), 4) for v in sync[-1]],
                 }
             )
     except (KeyboardInterrupt, BrokenPipeError):
@@ -327,10 +379,12 @@ def json_emitter(out: TextIO) -> Callable[[dict], None]:
 def line_emitter(out: TextIO) -> Callable[[dict], None]:
     """One compact text line per update. `*` marks a dancer at or above p90."""
     def emit(update: dict) -> None:
+        sync = update.get("sync") or [None] * len(update["scores"])
         cells = [
-            f"d{d} {score:.2f}{'*' if above else ' '} (now {latest:.2f})"
-            for d, (score, latest, above) in enumerate(
-                zip(update["scores"], update["latest"], update["above"])
+            f"d{d} {score:.2f}{'*' if above else ' '} (now {latest:.2f}"
+            + (f", sync {out_of_step:.2f})" if out_of_step is not None else ")")
+            for d, (score, latest, above, out_of_step) in enumerate(
+                zip(update["scores"], update["latest"], update["above"], sync)
             )
         ]
         out.write(f"t={update['t']:7.2f}s  " + "  ".join(cells) + "\n")
@@ -433,7 +487,7 @@ def main(argv: list[str] | None = None) -> None:
                 scorer=args.scorer,
             )
             return
-        scores, summary = score_clip(
+        scores, sync, summary = score_clip_full(
             args.source,
             args.models,
             poses=args.poses,
@@ -448,6 +502,9 @@ def main(argv: list[str] | None = None) -> None:
     npy_path, json_path = save_scores(scores, summary, args.out)
     print(format_table(summary))
     print(f"scores: {npy_path}, shape {scores.shape}")
+    if sync is not None:
+        np.save(sync_path_for(npy_path), sync)
+        print(f"sync: {sync_path_for(npy_path)}, shape {sync.shape}")
     print(regions_line(summary))
     print(f"summary: {json_path}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")

@@ -7,13 +7,18 @@ window. The tensor is cropped to each dancer's box.
 Dancer regions:
   - With poses (frames, dancers, 17, 3; COCO keypoints; x, y, confidence):
     the keypoint bounding box of each dancer, padded 15% on each side.
-  - Without poses: equal vertical strips, one per dancer.
+    Poses are the preferred source.
+  - Without poses: equal vertical strips, one per dancer. Inside its strip,
+    the box of a dancer centres itself on the dancer: its centre and size
+    follow a slow running median (about 5 s) of the event positions.
 
 There are 26 numbers per bin per dancer: 13 features, then their 13
 bin-to-bin deltas (feature[k] - feature[k - 1], 0 for the first bin).
 
 The 13 features, with coordinates normalised to the box:
-   0      rate        log1p(count) / log1p(RATE_CAP * box area), 0..1
+   0      rate        event count against the dancer's own running mean (about
+                      10 s): r / (1 + r) with r = count / mean. 0..1, and 0.5
+                      is the dancer's own mean. 0 on an empty bin.
    1      polarity    (ON - OFF) / count, -1..1, 0 on an empty bin
    2      centroid_x  mean x of events, 0..1, 0.5 on an empty bin
    3      centroid_y  mean y of events, 0..1, 0.5 on an empty bin
@@ -23,7 +28,8 @@ The 13 features, with coordinates normalised to the box:
 Output shape: (bins, dancers, 26), float32.
 
 A stream that comes window by window uses `base_features` on each window
-and `add_deltas` on the stacked rows. `extract_features` does both on one tensor.
+`StreamFeatures`, which keeps the running values, and `add_deltas` on the
+stacked rows. `extract_features` does all of it on one tensor with given boxes.
 
 CLI: python -m dance.features clip.mp4|events.h5 features.npy [--poses poses.npy] [--dancers N]
 """
@@ -32,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -53,7 +60,10 @@ assert FEATURE_DIM == 2 * BASE_DIM == len(FEATURE_NAMES)
 BOX_PAD = 0.15
 MIN_KEYPOINT_CONF = 0.3
 MIN_BOX_SIZE = 6       # pixels; the 3x3 grid needs at least 3
-RATE_CAP = 20.0        # events per pixel per window that map to rate = 1
+RATE_WINDOWS = 300     # windows in the running mean of the event count: about 10 s
+CENTRE_WINDOWS = 150   # windows in the running median of the event positions: about 5 s
+BOX_STD = 2.5          # half size of a self-centred box, in standard deviations of the event positions
+MIN_CENTRE_EVENTS = 20 # a window with fewer events does not move the box
 
 
 def strip_boxes(width: int, height: int, dancers: int) -> np.ndarray:
@@ -128,6 +138,50 @@ def pose_boxes(
     return out
 
 
+class _StripTracker:
+    """The self-centred box of one dancer inside its vertical strip.
+
+    The centre is the running median of the event centroid over the last
+    CENTRE_WINDOWS windows. The half size is BOX_STD times the spread of the
+    event positions about that centre, pooled over the same windows. The box
+    never leaves the strip. Before the first events, the box is the whole strip.
+    """
+
+    def __init__(self, strip: np.ndarray):
+        self.strip = tuple(int(v) for v in strip)
+        self.box = np.array(self.strip, dtype=np.int64)
+        self._history: deque[tuple[float, float, float, float]] = deque(maxlen=CENTRE_WINDOWS)
+        x0, y0, x1, y1 = self.strip
+        self._xs = np.arange(x1 - x0) + 0.5
+        self._ys = np.arange(y1 - y0) + 0.5
+
+    def update(self, total: np.ndarray) -> np.ndarray:
+        """`total` is the (H, W) event count of one window. Returns the box."""
+        x0, y0, x1, y1 = self.strip
+        crop = total[y0:y1, x0:x1]
+        count = float(crop.sum())
+        if count < MIN_CENTRE_EVENTS:
+            return self.box
+        col, row = crop.sum(axis=0), crop.sum(axis=1)
+        cx, cy = float(col @ self._xs) / count, float(row @ self._ys) / count
+        sx = float(np.sqrt(col @ (self._xs - cx) ** 2 / count))
+        sy = float(np.sqrt(row @ (self._ys - cy) ** 2 / count))
+        self._history.append((cx, cy, sx, sy))
+        hist = np.asarray(self._history)
+        mx, my = np.median(hist[:, 0]), np.median(hist[:, 1])
+        # Pooled spread: the spread inside each window plus the motion of the centroid.
+        spread_x = np.sqrt(np.mean(hist[:, 2] ** 2 + (hist[:, 0] - mx) ** 2))
+        spread_y = np.sqrt(np.mean(hist[:, 3] ** 2 + (hist[:, 1] - my) ** 2))
+        hx = max(BOX_STD * spread_x, MIN_BOX_SIZE / 2)
+        hy = max(BOX_STD * spread_y, MIN_BOX_SIZE / 2)
+        bx0 = int(np.clip(np.floor(x0 + mx - hx), x0, x1 - MIN_BOX_SIZE))
+        by0 = int(np.clip(np.floor(y0 + my - hy), y0, y1 - MIN_BOX_SIZE))
+        bx1 = int(np.clip(np.ceil(x0 + mx + hx), bx0 + MIN_BOX_SIZE, x1))
+        by1 = int(np.clip(np.ceil(y0 + my + hy), by0 + MIN_BOX_SIZE, y1))
+        self.box = np.array([bx0, by0, bx1, by1], dtype=np.int64)
+        return self.box
+
+
 class Regions:
     """Dancer boxes for each time window."""
 
@@ -139,6 +193,7 @@ class Regions:
         pose_fps: float = 30.0,
         scale: float | tuple[float, float] = 1.0,
         window_us: int = stream.WINDOW_US,
+        self_centre: bool = True,
     ):
         height, width = sensor_shape
         if width < MIN_BOX_SIZE or height < MIN_BOX_SIZE:
@@ -151,12 +206,22 @@ class Regions:
             self.dancers = self._frames.shape[1]
         else:
             self._strips = strip_boxes(width, height, dancers)
+            self._trackers = [_StripTracker(s) for s in self._strips] if self_centre else None
             self.dancers = dancers
 
-    def boxes(self, window_index: int) -> np.ndarray:
-        """(dancers, 4) int boxes for one window: x0, y0, x1, y1."""
+    def boxes(self, window_index: int, frame: np.ndarray | None = None) -> np.ndarray:
+        """(dancers, 4) int boxes for one window: x0, y0, x1, y1.
+
+        In strips mode, `frame` (the (1, 2, H, W) event counts of this window)
+        moves the self-centred boxes. Without `frame`, the boxes stay where they are.
+        """
         if self.mode == "strips":
-            return self._strips
+            if self._trackers is None:
+                return self._strips
+            if frame is None:
+                return np.stack([t.box for t in self._trackers])
+            total = frame[0, 0] + frame[0, 1]
+            return np.stack([t.update(total) for t in self._trackers])
         mid_s = (window_index + 0.5) * self._window_s
         frame = int(round(mid_s * self._pose_fps))
         return self._frames[min(max(frame, 0), len(self._frames) - 1)]
@@ -176,17 +241,70 @@ def add_deltas(base: np.ndarray) -> np.ndarray:
     return out
 
 
+class RateNormaliser:
+    """Event count -> rate against the dancer's own running mean.
+
+    The mean covers the last RATE_WINDOWS windows, with the current one.
+    rate = r / (1 + r), r = count / mean. So 0.5 is the dancer's own mean.
+    An empty bin gives 0.
+    """
+
+    def __init__(self, dancers: int):
+        self._history: deque[np.ndarray] = deque()
+        self._sum = np.zeros(dancers, dtype=np.float64)
+
+    def __call__(self, counts: np.ndarray) -> np.ndarray:
+        counts = np.asarray(counts, dtype=np.float64)
+        self._history.append(counts)
+        self._sum += counts
+        if len(self._history) > RATE_WINDOWS:
+            self._sum -= self._history.popleft()
+        mean = np.maximum(self._sum, 0.0) / len(self._history)
+        return np.where(counts > 0, counts / (counts + np.maximum(mean, 1e-9)), 0.0)
+
+
+class StreamFeatures:
+    """Features for a stream that comes one window at a time.
+
+    It keeps the running values: the self-centred boxes (in `regions`) and the
+    running mean of the event count. Use one object for one clip or one live run.
+    """
+
+    def __init__(self, regions: Regions):
+        self.regions = regions
+        self._rate = RateNormaliser(regions.dancers)
+        self._index = 0
+
+    def push(self, frame: np.ndarray) -> np.ndarray:
+        """One (1, 2, H, W) window -> (1, dancers, 13) features, without deltas."""
+        boxes = self.regions.boxes(self._index, frame)
+        self._index += 1
+        feats, counts = _window_features(frame, boxes)
+        feats[0, :, 0] = self._rate(counts[0])
+        return feats
+
+
 def extract_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
     """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 26).
 
     The contract function: 13 features and their 13 bin-to-bin deltas.
     `boxes` is (dancers, 4) for all bins, or (n_bins, dancers, 4).
+    The running mean for the rate starts at the first bin of `frames`.
     """
     return add_deltas(base_features(frames, boxes))
 
 
 def base_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
-    """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 13), no deltas.
+    """(n_bins, 2, H, W) event counts + boxes -> (n_bins, dancers, 13), no deltas."""
+    feats, counts = _window_features(frames, boxes)
+    rate = RateNormaliser(feats.shape[1])
+    for k in range(len(feats)):
+        feats[k, :, 0] = rate(counts[k])
+    return feats
+
+
+def _window_features(frames: np.ndarray, boxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Features with the rate not yet set, and the event counts (n_bins, dancers).
 
     `boxes` is (dancers, 4) for all bins, or (n_bins, dancers, 4).
     """
@@ -201,6 +319,7 @@ def base_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
 
     out = np.zeros((n_bins, dancers, BASE_DIM), dtype=np.float32)
     out[..., 2:4] = 0.5
+    counts = np.zeros((n_bins, dancers), dtype=np.float64)
     for k in range(n_bins):
         off, on = frames[k, 0], frames[k, 1]
         if not (off.any() or on.any()):
@@ -220,12 +339,12 @@ def base_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
             col = bands.sum(axis=0)
             row = total.sum(axis=1)
             f = out[k, d]
-            f[0] = min(1.0, np.log1p(count) / np.log1p(RATE_CAP * w * h))
+            counts[k, d] = count
             f[1] = (2.0 * float(crop_on.sum()) - count) / count
             f[2] = float(col @ (np.arange(w) + 0.5)) / (count * w)
             f[3] = float(row @ (np.arange(h) + 0.5)) / (count * h)
             f[4:] = grid.ravel() / count
-    return out
+    return out, counts
 
 
 def read_pose_meta(path: str | Path) -> dict:
@@ -322,7 +441,8 @@ def clip_features(
         scale = (shape[1] / pose_meta["width"], shape[0] / pose_meta["height"])
         fps = pose_meta.get("fps") or fps
     regions = Regions(shape, poses, dancers, pose_fps=fps, scale=scale)
-    rows = [base_features(frame, regions.boxes(k)) for k, frame in enumerate(frames)]
+    tracker = StreamFeatures(regions)
+    rows = [tracker.push(frame) for frame in frames]
     if rows:
         feats = add_deltas(np.concatenate(rows))
     else:
@@ -342,6 +462,21 @@ def clip_features(
         info["events"] = stream.save_hdf5(events_out, keep or [], shape)
         info["events_file"] = str(events_out)
     return feats, info
+
+
+def clip_features_job(job: tuple[str, int, float | None]) -> tuple[np.ndarray, dict]:
+    """One clip for a worker process: (path, dancers, max_seconds) -> (features, info).
+
+    Poses come from a `<clip name>.poses.npy` or `poses.npy` next to the clip, with
+    `meta.json` next to the poses for the size of the original video.
+    """
+    path, dancers, max_seconds = job
+    poses_path = find_poses(path)
+    poses = np.load(poses_path) if poses_path else None
+    pose_meta = None
+    if poses_path is not None and poses_path.with_name("meta.json").exists():
+        pose_meta = read_pose_meta(poses_path.with_name("meta.json"))
+    return clip_features(path, poses, dancers, max_seconds, pose_meta=pose_meta)
 
 
 def main(argv: list[str] | None = None) -> None:

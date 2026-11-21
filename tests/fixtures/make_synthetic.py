@@ -101,7 +101,9 @@ def _segments(n_frames: int, count: int, fraction: float, rng: np.random.Generat
     return out
 
 
-def _dancer_motion(kind: str, n_frames: int, seed: int, dancer: int) -> dict[str, np.ndarray]:
+def _dancer_motion(
+    kind: str, n_frames: int, seed: int, dancer: int, in_step: bool = False
+) -> dict[str, np.ndarray]:
     """Per-frame motion of one dancer, and its ground truth.
 
     Returns arrays of length n_frames: `u` (motion time, in frames), `dx`,
@@ -111,7 +113,8 @@ def _dancer_motion(kind: str, n_frames: int, seed: int, dancer: int) -> dict[str
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
     # The normal parameters depend only on (seed, dancer), not on the kind.
-    base = np.random.default_rng([seed, dancer, 0])
+    # With `in_step`, all dancers share the period, phase and size of dancer 0.
+    base = np.random.default_rng([seed, 0 if in_step else dancer, 0])
     period = PERIOD_FRAMES * (1.0 + base.uniform(-PERIOD_SPREAD, PERIOD_SPREAD))
     phase = base.uniform(0.0, 2.0 * np.pi)
     amp = 1.0 + base.uniform(-AMP_SPREAD, AMP_SPREAD)
@@ -179,11 +182,12 @@ def _draw_dancer(frame: np.ndarray, x_off: float, m: dict[str, np.ndarray], k: i
 
 
 def render_clip(
-    kinds: Sequence[str] = ("normal",), seed: int = 0, seconds: float = 8.0
+    kinds: Sequence[str] = ("normal",), seed: int = 0, seconds: float = 8.0, in_step: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render a clip in memory.
 
     kinds: one kind per dancer, left to right. 1 to 3 dancers.
+    in_step: all dancers do the same move at the same time, like a group dance.
     Returns (frames, abnormal):
         frames    uint8, (n_frames, HEIGHT, STRIP_W * dancers), grey
         abnormal  bool, (n_frames, dancers), the ground truth
@@ -194,7 +198,7 @@ def render_clip(
     n_frames = int(round(seconds * FPS))
     if n_frames < 2 * WARMUP_FRAMES:
         raise ValueError(f"the clip is too short: {seconds} s")
-    motions = [_dancer_motion(kind, n_frames, seed, d) for d, kind in enumerate(kinds)]
+    motions = [_dancer_motion(kind, n_frames, seed, d, in_step) for d, kind in enumerate(kinds)]
     frames = np.full((n_frames, HEIGHT, STRIP_W * len(kinds)), BACKGROUND, dtype=np.uint8)
     for k in range(n_frames):
         for d, m in enumerate(motions):
@@ -236,11 +240,12 @@ def read_clip(path: str | Path) -> np.ndarray:
 
 
 def make_clip(
-    path: str | Path, kinds: Sequence[str] = ("normal",), seed: int = 0, seconds: float = 8.0
+    path: str | Path, kinds: Sequence[str] = ("normal",), seed: int = 0, seconds: float = 8.0,
+    in_step: bool = False,
 ) -> SyntheticClip:
     """Render a clip, write it to `path`, and return it with its ground truth."""
     kinds = tuple(kinds)
-    frames, abnormal = render_clip(kinds, seed, seconds)
+    frames, abnormal = render_clip(kinds, seed, seconds, in_step)
     write_clip(path, frames)
     return SyntheticClip(
         path=Path(path), kinds=kinds, seed=seed, n_frames=len(frames), fps=FPS,

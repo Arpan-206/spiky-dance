@@ -191,4 +191,43 @@ def test_clip_features_scale_poses_with_the_meta_file(tmp_path):
     assert (feats[:, 0, 0] > 0).mean() > 0.9           # the square is inside box 0
     assert np.all(feats[:, 1, 0] == 0)                 # box 1 is empty
     whole, _ = clip_features(clip, dancers=1)
-    assert (whole[:, 0, 0] > 0).sum() == (feats[:, 0, 0] > 0).sum()
+    assert (feats[:, 0, 0] > 0).sum() >= (whole[:, 0, 0] > 0).sum()
+
+
+def test_strip_box_centres_itself_on_the_dancer():
+    """Events in one corner of a strip: the box moves there and stays inside the strip."""
+    from dance.features import StreamFeatures
+
+    rng = np.random.default_rng(1)
+    regions = Regions((120, 160), None, dancers=2)
+    assert tuple(regions.boxes(0)[0]) == (0, 0, 80, 120)          # before events: the whole strip
+    tracker = StreamFeatures(regions)
+    rows = []
+    for _ in range(40):
+        frame = np.zeros((1, 2, 120, 160), dtype=np.float32)
+        ys = rng.integers(20, 50, 200)                             # dancer 0: top-left area
+        xs = rng.integers(10, 40, 200)
+        np.add.at(frame[0, 1], (ys, xs), 1)
+        rows.append(tracker.push(frame))
+    feats = np.concatenate(rows)
+    x0, y0, x1, y1 = regions.boxes(40)[0]
+    assert 0 <= x0 < 10 and 40 < x1 <= 80 and 0 <= y0 < 20 and 50 < y1 <= 100
+    assert abs((x0 + x1) / 2 - 25) < 5 and abs((y0 + y1) / 2 - 35) < 5
+    assert tuple(regions.boxes(40)[1]) == (80, 0, 160, 120)        # dancer 1 has no events: whole strip
+    # The dancer is in the middle of its own box, wherever it stands in the frame.
+    assert abs(feats[-1, 0, 2] - 0.5) < 0.08 and abs(feats[-1, 0, 3] - 0.5) < 0.08
+    assert np.all(feats[:, 1, 0] == 0)
+
+
+def test_rate_is_relative_to_the_own_running_mean():
+    frames = np.zeros((30, 2, 30, 40), dtype=np.float32)
+    frames[:, 1, 10:20, 10:20] = 1                                 # 100 events per bin
+    frames[20, 1, 10:20, 10:20] = 9                                # a burst: 900 events
+    frames[25] = 0                                                 # an empty bin
+    rate = base_features(frames, np.array([[0, 0, 40, 30]]))[:, 0, 0]
+    assert np.allclose(rate[:20], 0.5, atol=1e-6)                  # at the own mean
+    assert rate[20] > 0.8                                          # far above the own mean
+    assert rate[25] == 0
+    # 10 times more events in every bin gives the same rate: the scale is the dancer's own.
+    rate10 = base_features(frames * 10, np.array([[0, 0, 40, 30]]))[:, 0, 0]
+    np.testing.assert_allclose(rate, rate10, atol=1e-6)

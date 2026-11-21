@@ -1,0 +1,121 @@
+{
+  "threshold": 0.9,
+  "n_samples": 3785,
+  "method": "anomaly: p90 of baseline-relative membrane attribution over the normal clips (sequence-SNN, ECDF percentile)",
+  "normal_stats": {
+    "n": 3785,
+    "mean": 0.15442410111427307,
+    "std": 0.11360055953264236,
+    "min": 0.0,
+    "p50": 0.16968242824077606,
+    "p90": 0.2842820882797241,
+    "p95": 0.3271624445915222,
+    "p99": 0.38909801840782166,
+    "max": 0.6923068761825562
+  },
+  "n_distinct_raw_scores": 3533,
+  "n_clips": 5,
+  "n_clips_given": 5,
+  "bins_per_clip": [
+    757,
+    757,
+    757,
+    757,
+    757
+  ],
+  "dancers_per_clip": [
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "regions": [
+    "strips"
+  ],
+  "regions_per_clip": [
+    "strips",
+    "strips",
+    "strips",
+    "strips",
+    "strips"
+  ],
+  "bin_ms": 33,
+  "feature_dim": 26,
+  "encoding": "shift",
+  "epochs": 6,
+  "seed": 0,
+  "steps_per_bin": 5,
+  "stdp_window": 25,
+  "settle_steps": 20000,
+  "network": "SparseSpikyNet: adaptive thresholds, top-k inhibition, row-normalised weights",
+  "target_rate": 0.1,
+  "topk_fraction": 0.15,
+  "activity": {
+    "hidden": 0.09994014352560043,
+    "output": 0.09733322262763977,
+    "hidden_neuron_min": 0.09933950006961823,
+    "hidden_neuron_max": 0.10066050291061401,
+    "output_neuron_min": 0.09220607578754425,
+    "output_neuron_max": 0.10092470049858093
+  },
+  "activity_in_target": true,
+  "thresholds": {
+    "hidden_mean": 20.527542114257812,
+    "hidden_min": 20.51032829284668,
+    "hidden_max": 20.550365447998047,
+    "output_mean": 18.997806549072266,
+    "output_min": 18.907798767089844,
+    "output_max": 19.067829132080078
+  },
+  "weights": {
+    "fc1": {
+      "mean": 0.25,
+      "std": 0.018438532948493958,
+      "min": 0.20023120939731598,
+      "max": 0.3014524281024933,
+      "fraction_zero": 0.0,
+      "fraction_at_max": 0.0,
+      "histogram_10_bins_0_to_1": [
+        0,
+        0,
+        3323,
+        5,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "fc2": {
+      "mean": 0.25,
+      "std": 0.012169676832854748,
+      "min": 0.20953495800495148,
+      "max": 0.2890511155128479,
+      "fraction_zero": 0.0,
+      "fraction_at_max": 0.0,
+      "histogram_10_bins_0_to_1": [
+        0,
+        0,
+        4096,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "baselines": {
+    "hidden_mean": 0.09994014352560043,
+    "hidden_max": 0.10066050291061401,
+    "output_mean": 0.09733322262763977,
+    "output_max": 0.10092470049858093
+  },
+  "train_seconds": 22.1,
+  "source": "STDP rule, whitening, attribution, calibration: github.com/Arpan-206/mr-spiky"
+}

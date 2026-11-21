@@ -1,75 +1,125 @@
 # Progress
 
-Last update: 15:30.
+Last update: 15:50.
+
+## Decision on the default scorer
+
+The default scorer is the baseline (`--scorer baseline`). The spiking network does not beat it.
+
+- With the input encoding of Mr. Spiky, the spiking scorer fails. It gives the freeze clip and the jerky clip a lower score than the normal clip.
+- With the opt-in on/off input encoding (`--encoding onoff`), the spiking scorer is about equal to the baseline. It is better on one real clip and worse on the synthetic clips.
 
 ## What runs
 
 | Part | State | Tests |
 |---|---|---|
 | Events through eventify-dvs | Runs | Pass |
-| Features | Runs | Pass |
-| Contracts | Written | Not applicable |
-| Baseline scorer (`--scorer baseline`) | Runs | Pass |
-| Scoring offline, one-command run | Runs | Pass |
-| Live mode on the real webcam | Runs, tested by hand at 15:25 | Loop tested with a video file |
-| Synthetic fixtures | Run | Pass |
-| End-to-end tests, baseline scorer | Run | Pass: jump, freeze, three dancers |
-| End-to-end tests, spiking scorer | Fail | 3 fail, they wait for the spiking model |
-| Spiking model and training | In work | Not merged |
+| Features: 13 features and 13 deltas, self-centred boxes, relative rate | Runs | Pass |
+| Baseline scorer | Runs, default | Pass |
+| Spiking scorer, encoding of Mr. Spiky | Runs, does not separate | 4 expected failures |
+| Spiking scorer, on/off encoding | Runs, opt-in | Pass |
+| Sync score for 2 or more dancers | Runs | Pass |
+| Scoring offline, episode folders | Runs | Pass |
+| Live mode on the real webcam | Runs, tested by hand | Loop tested with a video file |
+| One-command training with a held-out check | Runs | Error paths tested |
+| Full test suite | 110 pass, 4 expected failures | About 70 s |
 
 ## Real-clip table
 
-Training: 5 clean clips, 1 dancer, 25 s each. The test clips come from a held-out segment of the same video. The three abnormal clips are that segment, changed with ffmpeg.
+Training: 5 clean clips, 1 dancer, 25 s each. The test clips come from a held-out segment of the same video. The two abnormal clips are that segment, changed with ffmpeg. Each cell is "mean score / fraction of bins above p90".
 
-### Baseline scorer, 13 features
+| Real clip (1 dancer) | Bins | Baseline | Spiking, Mr. Spiky encoding | Spiking, on/off encoding |
+|---|---|---|---|---|
+| Held-out normal | 757 | 0.455 / 0.082 | 0.515 / 0.170 | 0.468 / 0.074 |
+| Abnormal: freeze for the last 8 s | 756 | 0.647 / 0.406 | 0.470 / 0.135 | 0.670 / 0.406 |
+| Abnormal: jerky, a jump every 8 frames | 756 | 0.976 / 0.911 | 0.288 / 0.041 | 0.991 / 0.992 |
 
-| Real clip (1 dancer) | Bins | Mean score | Fraction above p90 |
+The 3x speed clip is no longer in this table. No scorer separated it. Real good and bad clips will replace it.
+
+## Synthetic end-to-end table
+
+Training: 7 synthetic normal clips. Each cell is "mean score / fraction of bins above p90".
+
+| Synthetic clip | Baseline | Spiking, Mr. Spiky encoding | Spiking, on/off encoding |
 |---|---|---|---|
-| Held-out normal | 757 | 0.392 | 0.040 |
-| Abnormal: 3x speed | 255 | 0.341 | 0.031 |
-| Abnormal: freeze for the last 8 s | 756 | 0.602 | 0.362 |
-| Abnormal: jerky, a jump every 8 frames | 756 | 0.898 | 0.791 |
+| Held-out normal | 0.462 / 0.103 | 0.513 / 0.112 | 0.489 / 0.095 |
+| Sudden jumps | 0.934 / 0.880 | 0.437 / 0.070 | 0.800 / 0.529 |
+| Freeze | 0.872 / 0.789 | 0.409 / 0.116 | 0.806 / 0.599 |
+| Three dancers: dancer 1, jumps | 0.918 / 0.868 | 0.493 / 0.103 | 0.754 / 0.512 |
+| Three dancers: dancer 0, normal | 0.475 / 0.066 | 0.510 / 0.087 | 0.485 / 0.074 |
+| Three dancers: dancer 2, normal | 0.436 / 0.095 | 0.495 / 0.079 | 0.474 / 0.070 |
 
-### Baseline scorer, 26 features (13 features and their bin-to-bin deltas)
+## Effect of the feature changes, baseline scorer, real clips
 
-| Real clip (1 dancer) | Bins | Mean score | Fraction above p90 |
+Each cell is "mean score / fraction of bins above p90".
+
+| Real clip | 13 features | 26 features (with deltas) | 26 features, self-centred box, relative rate |
 |---|---|---|---|
-| Held-out normal | 757 | 0.420 | 0.074 |
-| Abnormal: 3x speed | 255 | 0.468 | 0.043 |
-| Abnormal: freeze for the last 8 s | 756 | 0.644 | 0.393 |
-| Abnormal: jerky, a jump every 8 frames | 756 | 0.973 | 0.903 |
+| Held-out normal | 0.392 / 0.040 | 0.420 / 0.074 | 0.455 / 0.082 |
+| Abnormal: freeze | 0.602 / 0.362 | 0.644 / 0.393 | 0.647 / 0.406 |
+| Abnormal: jerky | 0.898 / 0.791 | 0.973 / 0.903 | 0.976 / 0.911 |
 
-The baseline separates the freeze clip and the jerky clip from the normal clip. The deltas make both a little clearer. The 3x speed clip is still not separated: its fraction above p90 is below the normal clip.
+## Sync score
 
-### Spiking model
+Three synthetic dancers move in step. Only dancer 1 jumps.
 
-No numbers yet. The first port of Mr. Spiky gave the score 1.000 for every bin: every neuron fired in every bin.
+| Dancer | Mean sync score |
+|---|---|
+| 0, normal | 0.244 |
+| 1, jumps | 0.538 |
+| 2, normal | 0.244 |
 
-## End-to-end test on synthetic clips, baseline scorer
+0 means in step, 1 means no relation. The sync score is not tested on real clips with 2 or more dancers.
 
-| Synthetic clip | Mean score | Fraction above p90 |
-|---|---|---|
-| Held-out normal | 0.405 | 0.045 |
-| Sudden jumps | 0.729 | 0.459 |
-| Freeze | 0.752 | 0.529 |
-| Three dancers: dancer 0, normal | 0.439 | 0.058 |
-| Three dancers: dancer 1, jumps | 0.652 | 0.413 |
-| Three dancers: dancer 2, normal | 0.389 | 0.054 |
+## Spiking network: diagnostics
+
+Measured on the real training features, before the design change.
+
+| Diagnostic | Result |
+|---|---|
+| Neurons that fire per bin, untrained weights | Hidden layer 99.7%, output layer 100% |
+| Whitened features, mean per dimension | 0.000 |
+| Whitened features, standard deviation per dimension | 0.112 to 0.145 |
+| Path to the input current | Whiten, add 0.5, clamp to 0..1. No absolute value, no rectification. |
+| Input current of a hidden neuron | Mean 1.62 for a threshold of 1.0 |
+| Weights after training, old network | First layer between 0.1 and 0.5. Second layer: all weights the same value. |
+
+Cause of the first fault: each input is a constant 0.5 plus a small signal. So every neuron fired in every bin, and a value below the mean lowered the current.
+
+After the design change (adaptive threshold for each neuron, top-k inhibition, weight normalisation after each update):
+
+| Measure | Result |
+|---|---|
+| Neurons that fire per bin, hidden layer | 10.0% |
+| Neurons that fire per bin, output layer | 9.7% to 10.0% |
+| Target | 5% to 15% |
+| Weights after training | Almost equal: standard deviation 0.017 to 0.019 around 0.25 |
+
+The weights do not specialise. With the on/off encoding the score is close to a sum of absolute deviations with a leaky memory. That is the same kind of signal as the baseline.
+
+## Speed
+
+| Run | Time |
+|---|---|
+| One-command run of a 25 s real clip, baseline | 2.2 s |
+| Training, both scorers, 5 real clips of 25 s | 17 to 37 s |
+| Live mode | 10.1 updates per second |
 
 ## Live mode on the real webcam
 
 Tested by hand with the baseline scorer and the built-in camera.
 
-| Check | Result |
-|---|---|
-| Text output, 1 strip, 8 s | 81 updates, 243 bins, final table printed |
-| JSON output, 2 strips, 5 s | 50 updates, 10.1 updates per second |
+| Check | Time | Result |
+|---|---|---|
+| Text output, 1 strip, 8 s | 15:25 | 81 updates, final table printed |
+| JSON output, 2 strips, 5 s, current features and sync score | 15:46 | 50 updates, 10.1 updates per second |
 
-The trained baseline in `models/dance/` comes from one performer on a white background. So live scores from another room are high. Train on your own clean clips for the demo.
+The trained models in `models/dance/` come from one performer on a white background. So live scores in another room are high (0.75 in the test). Train again on clean clips from the demo room.
 
 ## Untested
 
+- Real pose files from the pose build. The tests use made-up poses.
+- Real clips with 2 or 3 dancers.
 - Live mode with the spiking scorer.
-- Ctrl-C in live mode on the real webcam. The runs used `--duration`.
-- Real pose files. All tests use made-up poses or vertical strips.
-- Clips with 2 or 3 real dancers.
+- Ctrl-C in live mode on the real webcam.
+- Training on eventify `.h5` files through the command.

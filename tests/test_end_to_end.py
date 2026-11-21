@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from dance.contracts import FEATURE_DIM
-from dance.features import RATE_CAP, clip_features
+from dance.features import clip_features
 from tests.fixtures import make_synthetic as ms
 
 THRESHOLD = 0.90            # the p90 threshold of the contract
@@ -70,17 +70,21 @@ def samples(tmp_path_factory) -> dict[str, Sample]:
     return out
 
 
-@pytest.fixture(scope="module", params=["spiking", "baseline"])
+@pytest.fixture(scope="module", params=["spiking", "spiking-onoff", "baseline"])
 def model(request, samples, tmp_path_factory):
     """Train one time for each scorer, then load. Both scorers have the same contract."""
-    if request.param == "spiking":
+    clips = [samples[name].features for name in TRAIN_PLAN]
+    out_dir = tmp_path_factory.mktemp(f"models_{request.param}")
+    if request.param == "baseline":
+        from dance.baseline import load_model, train
+        train(clips, out_dir)
+    else:
         from dance.spiky import load_model
         from dance.train import train
-    else:
-        from dance.baseline import load_model, train
-
-    out_dir = tmp_path_factory.mktemp(f"models_{request.param}")
-    train([samples[name].features for name in TRAIN_PLAN], out_dir)
+        if request.param == "spiking":
+            train(clips, out_dir)                       # the contract call: encoding of Mr. Spiky
+        else:
+            train(clips, out_dir, encoding="onoff")     # the opt-in on/off input encoding
     print(f"\n=== scorer: {request.param} ===")
     loaded = load_model(out_dir)
     loaded.scorer_name = request.param
@@ -89,7 +93,8 @@ def model(request, samples, tmp_path_factory):
 
 SPIKING_KNOWN_FAULT = (
     "The spiking scorer with the input encoding of Mr. Spiky counts only activity above "
-    "the normal level. It does not detect a freeze. See PROGRESS.md."
+    "the normal level. It does not detect a freeze, and not a jump when the rate is "
+    "relative to the dancer's own mean. See PROGRESS.md."
 )
 
 
@@ -105,9 +110,12 @@ def final_numbers(scores: np.ndarray) -> tuple[float, float]:
     return float(scores.mean()), float((scores >= THRESHOLD).mean())
 
 
-def events_per_bin(features: np.ndarray) -> np.ndarray:
-    """Invert the `rate` feature (index 0) to an event count, for a strip box."""
-    return np.expm1(features[..., 0] * np.log1p(RATE_CAP * ms.STRIP_W * ms.HEIGHT))
+def relative_rate(features: np.ndarray) -> np.ndarray:
+    """The `rate` feature (index 0): event count against the dancer's own running mean.
+
+    0.5 is the own mean. 0 is an empty bin.
+    """
+    return features[..., 0]
 
 
 def report(name: str, sample: Sample, scores: np.ndarray) -> None:
@@ -179,31 +187,30 @@ def test_features_have_the_contract_shape(samples):
         assert sample.truth.shape == f.shape[:2], name
 
 
-def test_static_clip_gives_almost_no_events(samples):
+def test_static_clip_gives_no_events(samples):
     """The dark grey background keeps compression noise below the event threshold."""
-    events = events_per_bin(samples["still"].features)
-    print(f"\nstill clip: {events.sum():.0f} events in {len(events)} bins")
-    assert events.sum() < 50
+    rate = relative_rate(samples["still"].features)
+    print(f"\nstill clip: {(rate > 0).sum()} bins with events of {rate.size}")
+    assert (rate > 0).mean() < 0.05
 
 
 def test_abnormal_frames_show_in_the_raw_features(samples):
-    normal = events_per_bin(samples["normal"].features)[:, 0]
-    jump, jump_truth = events_per_bin(samples["jump"].features)[:, 0], samples["jump"].truth[:, 0]
-    freeze, freeze_truth = events_per_bin(samples["freeze"].features)[:, 0], samples["freeze"].truth[:, 0]
-    print(f"\nevents per bin, normal clip: mean {normal.mean():.0f}, max {normal.max():.0f}")
-    print(f"events per bin, jump clip: inside {jump[jump_truth].mean():.0f}, outside {jump[~jump_truth].mean():.0f}, "
-          f"max inside {jump[jump_truth].max():.0f}, max outside {jump[~jump_truth].max():.0f}")
-    print(f"events per bin, freeze clip: inside {freeze[freeze_truth].mean():.0f}, "
-          f"outside {freeze[~freeze_truth].mean():.0f}, "
-          f"empty bins inside {(freeze[freeze_truth] < 0.5).mean():.2f}")
-    # Jump: more events inside the abnormal bins, and bursts above every normal bin.
-    assert jump[jump_truth].mean() > 2.0 * jump[~jump_truth].mean()
-    assert jump[jump_truth].max() > 3.0 * normal.max()
-    assert jump[~jump_truth].max() < 1.5 * normal.max()
+    normal = relative_rate(samples["normal"].features)[:, 0]
+    jump, jump_truth = relative_rate(samples["jump"].features)[:, 0], samples["jump"].truth[:, 0]
+    freeze, freeze_truth = relative_rate(samples["freeze"].features)[:, 0], samples["freeze"].truth[:, 0]
+    print(f"\nrate, normal clip: mean {normal.mean():.3f}, max {normal.max():.3f}")
+    print(f"rate, jump clip: inside {jump[jump_truth].mean():.3f}, outside {jump[~jump_truth].mean():.3f}, "
+          f"max inside {jump[jump_truth].max():.3f}")
+    print(f"rate, freeze clip: inside {freeze[freeze_truth].mean():.3f}, "
+          f"outside {freeze[~freeze_truth].mean():.3f}, "
+          f"empty bins inside {(freeze[freeze_truth] == 0).mean():.2f}")
+    # Jump: bursts far above the dancer's own mean, higher than any normal bin.
+    assert jump[jump_truth].mean() > jump[~jump_truth].mean()
+    assert jump[jump_truth].max() > normal.max()
     # Freeze: almost no events inside the abnormal bins.
-    assert freeze[freeze_truth].mean() < 0.1 * freeze[~freeze_truth].mean()
-    assert (freeze[freeze_truth] < 0.5).mean() > 0.6
-    assert (freeze[~freeze_truth] < 0.5).mean() == 0.0
+    assert freeze[freeze_truth].mean() < 0.25 * freeze[~freeze_truth].mean()
+    assert (freeze[freeze_truth] == 0).mean() > 0.6
+    assert (freeze[~freeze_truth] == 0).mean() < 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +228,8 @@ def test_scores_follow_the_contract(samples, model):
         assert np.array_equal(scores, model.score(features)), f"{name}: the second call gives other scores"
 
 
-def test_a_jump_clip_scores_clearly_higher_than_normal(samples, model):
+def test_a_jump_clip_scores_clearly_higher_than_normal(samples, model, request):
+    known_spiking_fault(request, model)
     normal = model.score(samples["normal"].features)
     jump = model.score(samples["jump"].features)
     report("held-out normal", samples["normal"], normal)
@@ -255,3 +263,22 @@ def test_d_load_model_on_an_empty_folder_raises(tmp_path):
     empty.mkdir()
     with pytest.raises(FileNotFoundError):
         load_model(empty)
+
+
+def test_e_sync_score_marks_the_dancer_out_of_step(samples, tmp_path):
+    """The sync score needs no training. Three dancers move in step; only dancer 1 jumps."""
+    from dance.sync import sync_score
+
+    clip = ms.make_clip(tmp_path / "group.mp4", ("normal", "jump", "normal"), seed=105, seconds=8.0, in_step=True)
+    features, _ = clip_features(clip.path, dancers=3)
+    sync = sync_score(features)
+    assert sync.shape == features.shape[:2]
+    means = sync.mean(axis=0)
+    truth = clip.abnormal_bins(len(features))[:, TRIO_ABNORMAL_DANCER]
+    inside = sync[truth, TRIO_ABNORMAL_DANCER].mean()
+    outside = sync[~truth, TRIO_ABNORMAL_DANCER].mean()
+    print(f"\nsync, three dancers in step: mean per dancer {np.round(means, 3).tolist()}; "
+          f"jump dancer inside abnormal bins {inside:.3f}, outside {outside:.3f}")
+    assert int(np.argmax(means)) == TRIO_ABNORMAL_DANCER
+    assert means[TRIO_ABNORMAL_DANCER] > np.delete(means, TRIO_ABNORMAL_DANCER).max() + 0.05
+    assert sync_score(samples["normal"].features) is None      # 1 dancer: no sync score

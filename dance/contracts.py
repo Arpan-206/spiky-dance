@@ -30,7 +30,9 @@ def extract_features(binned: np.ndarray, boxes: np.ndarray) -> np.ndarray:
 
     Returns float32, shape (n_bins, dancers, FEATURE_DIM). No NaN, also on an
     empty bin. Feature order, with coordinates normalised to the box:
-        0      rate        log-scaled event count, 0..1
+        0      rate        event count against the dancer's own running mean,
+                           r / (1 + r) with r = count / mean. 0..1; 0.5 is the
+                           own mean; 0 on an empty bin
         1      polarity    (ON - OFF) / count, -1..1, 0 on an empty bin
         2      centroid_x  0..1, 0.5 on an empty bin
         3      centroid_y  0..1, 0.5 on an empty bin

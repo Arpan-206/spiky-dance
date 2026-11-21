@@ -331,24 +331,54 @@ def find_clips(clips_dir: str | Path) -> list[Path]:
     ]
 
 
+def build_features(paths: list[Path], dancers: int, max_seconds: float | None, jobs: int) -> list[tuple[np.ndarray, dict]]:
+    """Features of all clips. Clips run in parallel worker processes."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    from dance.features import clip_features_job
+
+    work = [(str(path), dancers, max_seconds) for path in paths]
+    if jobs <= 1 or len(work) == 1:
+        return [clip_features_job(job) for job in work]
+    with ProcessPoolExecutor(max_workers=min(jobs, len(work))) as pool:
+        return list(pool.map(clip_features_job, work))
+
+
 def main(argv: list[str] | None = None) -> None:
+    """One command to train again on a folder of clean clips.
+
+    One clip is held out. The scorers are fitted on the other clips. Then the
+    held-out clip is scored, so you can see that a normal clip gets a mean score
+    near 0.4 to 0.5 and about 10 percent of its bins above the threshold.
+    """
+    import os
+    import time
+
     p = argparse.ArgumentParser(
-        description="Train the dance SNN on a folder of clean (normal) clips."
+        description="Train the scorers on a folder of clean (normal) clips, with a held-out check."
     )
     p.add_argument("clips_dir", help="folder with video clips or eventify .h5 files")
     p.add_argument("--out", default="models/dance", help="folder for the model artefacts")
+    p.add_argument("--scorer", choices=("baseline", "spiking", "both"), default="both",
+                   help="which scorer to fit")
     p.add_argument("--dancers", type=int, default=1,
                    help="number of vertical strips when a clip has no poses file")
     p.add_argument("--max-seconds", type=float, default=None,
                    help="use only the first S seconds of each clip")
-    p.add_argument("--epochs", type=int, default=EPOCHS)
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--holdout", default=None,
+                   help="file name of the clip to hold out; default: the last clip by name")
+    p.add_argument("--no-holdout", action="store_true", help="train on all clips, no held-out check")
+    p.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1),
+                   help="worker processes for the event and feature work")
+    p.add_argument("--epochs", type=int, default=EPOCHS, help="spiking scorer: training epochs")
+    p.add_argument("--seed", type=int, default=0, help="spiking scorer: random seed")
     p.add_argument("--encoding", choices=ENCODINGS, default="shift",
-                   help="shift: the input encoding of Mr. Spiky; onoff: rectified, see encode.py")
+                   help="spiking scorer. shift: the input encoding of Mr. Spiky; onoff: rectified, see encode.py")
     args = p.parse_args(argv)
 
-    from dance import features as feats
+    from dance import baseline
 
+    start = time.perf_counter()
     try:
         paths = find_clips(args.clips_dir)
     except FileNotFoundError as err:
@@ -359,43 +389,65 @@ def main(argv: list[str] | None = None) -> None:
             "Put video files or eventify .h5 files in that folder."
         )
 
+    held: Path | None = None
+    if not args.no_holdout:
+        if args.holdout is not None:
+            matches = [q for q in paths if q.name == args.holdout]
+            if not matches:
+                raise SystemExit(f"error: held-out clip {args.holdout!r} is not in {args.clips_dir}")
+            held = matches[0]
+        elif len(paths) >= 2:
+            held = paths[-1]
+        else:
+            print("Only 1 clip: no held-out check. Give 2 or more clips for the check.")
+
+    built = build_features(paths, args.dancers, args.max_seconds, args.jobs)
     clips: list[np.ndarray] = []
     regions: list[str] = []
-    for path in paths:
-        poses_path = feats.find_poses(path)
-        poses = np.load(poses_path) if poses_path else None
-        f, info = feats.clip_features(path, poses, args.dancers, args.max_seconds)
-        print(f"{path.name}: {f.shape[0]} bins, {f.shape[1]} dancers, regions from {info['regions']}")
-        clips.append(f)
-        regions.append(str(info["regions"]))
+    held_features: np.ndarray | None = None
+    for path, (f, info) in zip(paths, built):
+        role = "held out" if path == held else "train"
+        print(f"{path.name}: {f.shape[0]} bins, {f.shape[1]} dancer(s), regions from {info['regions']}, {role}")
+        if path == held:
+            held_features = f
+        else:
+            clips.append(f)
+            regions.append(str(info["regions"]))
+    features_s = time.perf_counter() - start
 
+    rows: list[tuple[str, float, float]] = []
     try:
-        train(clips, args.out, epochs=args.epochs, seed=args.seed, encoding=args.encoding,
-              regions=regions, verbose=True)
+        if args.scorer in ("baseline", "both"):
+            baseline.train(clips, args.out)
+            if held_features is not None:
+                s = baseline.load_model(args.out).score(held_features)
+                rows.append(("baseline", float(s.mean()), float((s >= 0.90).mean())))
+        if args.scorer in ("spiking", "both"):
+            from dance.spiky import load_model
+
+            train(clips, args.out, epochs=args.epochs, seed=args.seed, encoding=args.encoding,
+                  regions=regions, verbose=False)
+            if held_features is not None:
+                s = load_model(args.out).score(held_features)
+                rows.append(("spiking", float(s.mean()), float((s >= 0.90).mean())))
     except (ValueError, DegenerateCalibrationError) as err:
         raise SystemExit(f"error: {err}")
 
-    meta = json.loads((Path(args.out) / THRESHOLD_FILE).read_text())
-    w1, w2, s = meta["weights"]["fc1"], meta["weights"]["fc2"], meta["normal_stats"]
-    print(f"\nModel saved in {args.out} ({meta['train_seconds']} s)")
-    print("| Item | Value |")
-    print("|---|---|")
-    print(f"| Clips | {meta['n_clips']} |")
-    print(f"| Bins (all clips) | {sum(meta['bins_per_clip'])} |")
-    print(f"| Samples (bins x dancers) | {meta['n_samples']} |")
-    print(f"| Regions | {', '.join(meta['regions'])} |")
-    print(f"| Encoding | {meta['encoding']} |")
-    print(f"| fc1 weights | mean {w1['mean']:.3f}, std {w1['std']:.3f}, "
-          f"zero {w1['fraction_zero']:.1%}, at max {w1['fraction_at_max']:.1%} |")
-    print(f"| fc2 weights | mean {w2['mean']:.3f}, std {w2['std']:.3f}, "
-          f"zero {w2['fraction_zero']:.1%}, at max {w2['fraction_at_max']:.1%} |")
-    print(f"| Raw score (normal clips) | min {s['min']:.4f}, p50 {s['p50']:.4f}, "
-          f"p90 {s['p90']:.4f}, p99 {s['p99']:.4f}, max {s['max']:.4f} |")
-    print(f"| Distinct raw scores | {meta['n_distinct_raw_scores']} |")
-    act = meta["activity"]
-    print(f"| Neurons that fire per bin | hidden {act['hidden']:.1%}, output {act['output']:.1%} "
-          f"(target 5% to 15%: {'yes' if meta['activity_in_target'] else 'NO'}) |")
-    print(f"| Threshold (percentile) | {meta['threshold']} |")
+    total_s = time.perf_counter() - start
+    print(f"\nModels saved in {args.out}. Trained on {len(clips)} clip(s).")
+    if args.scorer in ("spiking", "both"):
+        meta = json.loads((Path(args.out) / THRESHOLD_FILE).read_text())
+        act = meta["activity"]
+        print(f"Spiking scorer: encoding {meta['encoding']}, neurons that fire per bin: "
+              f"hidden {act['hidden']:.1%}, output {act['output']:.1%} (target 5% to 15%).")
+    if rows:
+        print(f"\nHeld-out normal clip: {held.name}. It was not used for training.")
+        print("| Scorer | Mean score | Fraction above p90 |")
+        print("|---|---|---|")
+        for name, mean, fraction in rows:
+            print(f"| {name} | {mean:.3f} | {fraction:.3f} |")
+        print("A normal clip must give a mean near 0.4 to 0.5 and a fraction near 0.10.")
+    print(f"Time: {total_s:.1f} s (events and features {features_s:.1f} s).")
 
 
 if __name__ == "__main__":

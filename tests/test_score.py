@@ -243,6 +243,11 @@ def test_run_on_an_episode_folder_uses_its_poses_and_meta(tmp_path, fake_model, 
     assert (episode / "events.h5").exists()
     assert (episode / "meta.json").read_bytes() == their_meta
     assert (episode / "pose3d.npz").read_bytes() == b"theirs"
+    # Two dancers: the sync score is a second file, and scores_meta.json records it.
+    sync = np.load(episode / "sync.npy")
+    assert sync.shape == (meta["bins"], 2) and sync.min() >= 0 and sync.max() <= 2
+    assert meta["sync"]["file"] == "sync.npy" and meta["sync"]["window_s"] == 2.0
+    assert len(meta["sync"]["mean_per_dancer"]) == 2
     assert "pose boxes" in capsys.readouterr().out
 
 
@@ -258,6 +263,11 @@ def test_run_on_an_episode_folder_with_only_events(moving_clip, tmp_path, fake_m
 
     again = np.load(episode / "scores.npy")
     assert again.shape[1] == 2 and abs(len(again) - len(first)) <= 1
+    assert first.shape[1] == 1                         # the first run had 1 dancer: no sync score
+    assert (episode / "sync.npy").exists()             # the second run has 2 dancers
+    run.main([str(episode), "--dancers", "1"])
+    assert not (episode / "sync.npy").exists()         # 1 dancer again: the old file is removed
+    assert json.loads((episode / "scores_meta.json").read_text())["sync"] is None
     assert (episode / "events.h5").stat().st_mtime_ns == events_before
 
 
@@ -361,7 +371,7 @@ def test_live_loop_from_a_file_emits_every_three_windows(moving_clip):
 
     assert len(updates) == len(windows) // 3
     for i, update in enumerate(updates):
-        assert set(update) == {"t", "scores", "latest", "above"}
+        assert set(update) == {"t", "scores", "latest", "above", "sync"}
         assert len(update["scores"]) == len(update["latest"]) == len(update["above"]) == 2
         assert all(0 <= v <= 1 for v in update["scores"] + update["latest"])
         assert all(isinstance(v, bool) for v in update["above"])

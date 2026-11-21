@@ -17,6 +17,7 @@ Read from the episode folder, when present (the pose build writes them):
 Written to the episode folder:
     events.h5          eventify HDF5 export, coordinates in sensor pixels
     scores.npy         float32 (bins, dancers), values 0 to 1
+    sync.npy           float32 (bins, dancers), values 0 to 2; only for 2 or more dancers
     scores_meta.json   bin_ms, bins, sensor size, scorer, threshold, ranking
 
 `meta.json` and `pose3d.npz` are never written or changed here.
@@ -39,6 +40,7 @@ from . import score, stream
 
 EVENTS_NAME = "events.h5"
 SCORES_NAME = "scores.npy"
+SYNC_NAME = "sync.npy"
 SCORES_META_NAME = "scores_meta.json"
 POSES_NAME = "poses.npy"
 POSE_META_NAME = "meta.json"
@@ -92,7 +94,7 @@ def run_clip(
     has_poses = poses_path.exists()
     episode.mkdir(parents=True, exist_ok=True)
     events_path = episode / EVENTS_NAME
-    scores, summary = score.score_clip(
+    scores, sync, summary = score.score_clip_full(
         source,
         model_dir,
         poses=poses_path if has_poses else None,
@@ -105,6 +107,12 @@ def run_clip(
         scorer=scorer,
     )
     np.save(episode / SCORES_NAME, scores)
+    sync_meta = summary["sync"]
+    if sync is not None:
+        np.save(episode / SYNC_NAME, sync)
+        sync_meta = {"file": SYNC_NAME, **sync_meta}
+    elif (episode / SYNC_NAME).exists():
+        (episode / SYNC_NAME).unlink()         # an old file of a run with more dancers
 
     height, width = summary["sensor_shape"]
     scores_meta = {
@@ -122,6 +130,7 @@ def run_clip(
         "source": Path(source).name,
         "events_file": EVENTS_NAME,
         "scores_file": SCORES_NAME,
+        "sync": sync_meta,
     }
     (episode / SCORES_META_NAME).write_text(json.dumps(scores_meta, indent=2) + "\n")
 
@@ -161,6 +170,10 @@ def main(argv: list[str] | None = None) -> None:
     if "events" in summary:
         print(f"events: {summary['events_file']}, {summary['events']} events")
     print(f"scores: {summary['scores_file']}, {summary['bins']} bins, {args.scorer} scorer")
+    if summary["sync"] is not None:
+        print(f"sync: {Path(summary['episode']) / SYNC_NAME}")
+    else:
+        print("sync: not written. The sync score needs 2 or more dancers.")
     print(score.regions_line(summary))
     print(f"scores meta: {summary['scores_meta_file']}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")
