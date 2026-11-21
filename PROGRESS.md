@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 17:05.
+Last update: 17:15.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,38 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Bad takes from the room: a blind test (17:15)
+
+9 more takes of the same dancer in the same room arrived without labels. I scored them before I knew that all 9 are bad takes (changed order, wrong hand positions, random motions). No model was trained on them.
+
+Leave-one-out test with room-only models: train on 4 clean takes, score the 5th clean take and all 9 bad takes. Each cell is "mean score / fraction of bins above p90", the mean over the 5 runs.
+
+| Takes | Spiking | Baseline |
+|---|---|---|
+| Clean take that the model did not see (5 runs) | 0.511 / 0.114 | 0.518 / 0.113 |
+| Range over the 5 clean takes | 0.464 to 0.556 / 0.064 to 0.184 | 0.503 to 0.549 / 0.070 to 0.184 |
+| The 9 bad takes | 0.751 / 0.434 | 0.776 / 0.436 |
+
+| Bad take | Spiking | Baseline |
+|---|---|---|
+| 170241 | 0.592 / 0.157 | 0.604 / 0.160 |
+| 170159 | 0.629 / 0.242 | 0.666 / 0.250 |
+| 170320 | 0.630 / 0.222 | 0.639 / 0.225 |
+| 170339 | 0.727 / 0.408 | 0.747 / 0.321 |
+| 170301 | 0.776 / 0.525 | 0.776 / 0.471 |
+| 170434 | 0.814 / 0.552 | 0.853 / 0.565 |
+| 170220 | 0.826 / 0.623 | 0.840 / 0.573 |
+| 170356 | 0.844 / 0.522 | 0.900 / 0.646 |
+| 170414 | 0.861 / 0.545 | 0.894 / 0.598 |
+
+- **With room-only models, 8 of the 9 bad takes score above every clean take.** The measure is the fraction of bins above the threshold: the highest clean take has 0.184. The one miss is take 170241 with 0.157.
+- **With the YouTube + room models (`models/dance/`), no bad take is flagged.** A clean room take scores 0.192 / 0.003 and the bad takes score 0.318 / 0.002. The order is right, but nothing crosses the threshold.
+- The two scorers are equal here, within 0.03.
+
+Limit of this test: the clean takes were filmed at 16:30 and the bad takes at 17:02. The framing is a little wider in the last three bad takes. So a part of the difference can come from the session, not from the dancing. Clean takes from the same session as the bad takes will settle this.
+
+Recommendation for clips from this room: `--models models/room`. The models in the repo did not change: bad takes are never used for training.
 
 ## Merge of the other half and combined runs (17:00)
 
