@@ -327,6 +327,27 @@ def test_meta_json_keys_of_the_other_build(tmp_path):
     }
 
 
+def test_events_file_keeps_a_freeze_at_the_end_of_the_clip(tmp_path, fake_model):
+    """A clip that ends without events must give the same bins from events.h5 as from the clip."""
+    from tests.conftest import square_positions, write_square_clip
+
+    positions = square_positions(90)
+    positions[45:] = positions[45]                         # the last 1.5 s: no motion, no events
+    clip = write_square_clip(tmp_path / "freeze_end.mp4", positions, 90)
+    episodes = tmp_path / "episodes"
+    run.main([str(clip), "--episodes-dir", str(episodes)])
+    episode = episodes / "freeze_end"
+    from_clip = np.load(episode / "scores.npy")
+    events, _ = stream.read_hdf5(episode / "events.h5")
+    assert events["t"].max() < 1_700_000                   # the events stop long before the end
+    assert stream.read_hdf5_duration(episode / "events.h5") == int(89 * 1_000_000 / 30.0)
+
+    run.main([str(episode)])                               # no video in the folder: reads events.h5
+    from_events = np.load(episode / "scores.npy")
+    assert from_events.shape == from_clip.shape            # the frozen bins are not lost
+    assert len(from_clip) >= 88
+
+
 def test_run_stops_on_an_empty_episode_folder(tmp_path, fake_model):
     empty = tmp_path / "episodes" / "nothing"
     empty.mkdir(parents=True)

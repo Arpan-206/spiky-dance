@@ -449,7 +449,11 @@ def main(argv: list[str] | None = None) -> None:
         print("|---|---|---|")
         for name, mean, fraction in rows:
             print(f"| {name} | {mean:.3f} | {fraction:.3f} |")
-        print("A normal clip must give a mean near 0.4 to 0.5 and a fraction near 0.10.")
+        print("Expected for a normal clip: a mean near 0.4 to 0.5 and a fraction near 0.10.")
+        for name, mean, fraction in rows:
+            if not (0.30 <= mean <= 0.60) or fraction > 0.25:
+                print(f"NOTE: the {name} scorer is outside that range. The held-out clip differs from "
+                      "the training clips, or there are too few training clips.")
     print(f"Time: {total_s:.1f} s (events and features {features_s:.1f} s).")
 
 

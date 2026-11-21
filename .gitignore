@@ -17,6 +17,8 @@ clips/
 out/
 *events.npy
 *scores.npy
+*sync.npy
+*features.npy
 *scores.json
 *.meta.json
 *.h5

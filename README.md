@@ -61,7 +61,7 @@ Each cell is "mean score / fraction of bins above p90". Training used 5 clean re
 What the tables show:
 
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
-- **The weights of the network do not specialise.** After training, all weights are almost equal: their standard deviation is about 0.02 around 0.25. So each neuron computes almost the same sum of its inputs. The score is close to a sum of absolute deviations with a leaky memory. That is the same kind of signal as the baseline. The learning rule (STDP) adds little.
+- **The weights of the network do not specialise.** After training, all weights are almost equal: their standard deviation is 0.02 to 0.04 around 0.25. So each neuron computes almost the same sum of its inputs. The score is close to a sum of absolute deviations with a leaky memory. That is the same kind of signal as the baseline. The learning rule (STDP) adds little.
 
 ### The two input encodings of the spiking scorer
 
@@ -82,7 +82,9 @@ Train on a folder of clean clips. This is one command for both scorers. All clip
 uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1
 ```
 
-The command holds out one clip, fits on the others, and prints the scores of the held-out clip. A normal clip must give a mean near 0.4 to 0.5 and a fraction near 0.10. Options:
+The command holds out one clip, fits on the others, and prints the scores of the held-out clip. For a normal clip, expect a mean near 0.4 to 0.5 and a fraction near 0.10. The command prints a note when the held-out clip is outside the range 0.30 to 0.60. That happens when the held-out clip differs from the training clips, or when there are few training clips.
+
+The models in `models/dance/` were trained with `--no-holdout`, so they use all clips. Options:
 
 | Option | Effect |
 |---|---|
@@ -146,7 +148,8 @@ One clip has one folder: `episodes/<clip name>/`. The clip name is the file name
 | `events.h5` | This build | Events, in sensor pixels (at most 320 wide) |
 | `scores.npy` | This build | Scores, `(bins, dancers)` |
 | `sync.npy` | This build | Sync scores, `(bins, dancers)`. Only for 2 or more dancers. |
-| `scores_meta.json` | This build | `bin_ms`, `bins`, `sensor_width`, `sensor_height`, `scorer`, `threshold`, `sync`, and the ranking |
+| `scores_meta.json` | This build | `bin_ms`, `bins`, `sensor_width`, `sensor_height`, `scorer`, `threshold`, `sync`, `dancers`, `regions`, `pose_scale`, and the ranking |
+| `preview.mp4` | This build | Only with `--preview` or `dance.preview`: the fallback preview video |
 
 This build only reads `poses.npy` and `meta.json`. It never writes them.
 
@@ -156,14 +159,14 @@ If `poses.npy` is absent, the run uses vertical strips. The number of strips is 
 
 With an episode folder as the target, the source is `clip.mp4`. If there is no `clip.mp4`, the one other video in the folder is the source. More than one other video without a `clip.mp4` is an error.
 
-If the target folder has no video but has `events.h5`, the scores come from that file.
+If the target folder has no video but has `events.h5`, the scores come from that file. An `events.h5` from this build also holds the clip length (attribute `duration_us` of `/events`), so a freeze at the end of the clip is scored. A plain `eventify export` file has no clip length: its bins stop at the last event.
 
 ## Data formats
 
 | Data | Format |
 |---|---|
 | Events | eventify `EVENT_DTYPE`: `x` int16, `y` int16, `t` int64 microseconds, `p` int8 (0 = OFF, 1 = ON) |
-| Events file | eventify HDF5 export: `/events/xs`, `ys`, `ts`, `ps`, attribute `sensor_shape` = (height, width) |
+| Events file | eventify HDF5 export: `/events/xs`, `ys`, `ts`, `ps`. The `/events` group has the attribute `sensor_shape` = (height, width). |
 | Binned events | float32 `(n_bins, 2, H, W)`, the layout of eventify `frame_stream`. Channel 0 = OFF, channel 1 = ON. |
 | Features | float32 `(bins, dancers, 26)`: 13 features, then their 13 bin-to-bin deltas |
 | Scores | float32 `(bins, dancers)`, values 0 to 1 |

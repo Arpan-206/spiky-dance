@@ -395,17 +395,24 @@ def find_poses(near: str | Path) -> Path | None:
 
 def _open_source(
     source: str | Path, max_seconds: float | None, keep: list[np.ndarray] | None
-) -> tuple[Iterator[np.ndarray], tuple[int, int], float, float]:
-    """Return (window iterator, sensor_shape, fps, scale) for a clip or an HDF5 file."""
+) -> tuple[Iterator[np.ndarray], tuple[int, int], float, float, int | None]:
+    """Return (window iterator, sensor_shape, fps, scale, duration_us) for a clip or an HDF5 file."""
     source = Path(source)
     if source.suffix.lower() in stream.HDF5_SUFFIXES:
         events, shape = stream.read_hdf5(source)
+        # Without the clip length, the bins stop at the last event: a freeze at
+        # the end is then lost. Files that `save_hdf5` wrote have the length.
+        duration_us = stream.read_hdf5_duration(source)
         if max_seconds is not None:
             events = events[events["t"] < int(max_seconds * 1_000_000)]
+            if duration_us is not None:
+                duration_us = min(duration_us, int(max_seconds * 1_000_000))
         if keep is not None:
             keep.append(events)
         chunks = stream.split_by_window(events)
-        return stream.window_frames(chunks, shape, chunk_dt_us=stream.WINDOW_US), shape, 30.0, 1.0
+        n_windows = None if duration_us is None else duration_us // stream.WINDOW_US + 1
+        frames = stream.window_frames(chunks, shape, chunk_dt_us=stream.WINDOW_US, n_windows=n_windows)
+        return frames, shape, 30.0, 1.0, duration_us
 
     info = stream.probe_source(str(source))
     chunks = stream.event_chunks(str(source), info, duration_s=max_seconds)
@@ -417,7 +424,7 @@ def _open_source(
     n_windows = None if duration_us is None else duration_us // stream.WINDOW_US + 1
     dt = int(1_000_000 / info.fps / (stream.INTERP + 1))
     frames = stream.window_frames(chunks, info.sensor_shape, chunk_dt_us=dt, n_windows=n_windows)
-    return frames, info.sensor_shape, info.fps, info.scale
+    return frames, info.sensor_shape, info.fps, info.scale, duration_us
 
 
 def _tee(chunks: Iterator[np.ndarray], keep: list[np.ndarray]) -> Iterator[np.ndarray]:
@@ -444,7 +451,7 @@ def clip_features(
     crop. Without `pose_meta`, the size of the clip itself is used.
     """
     keep: list[np.ndarray] | None = [] if events_out is not None else None
-    frames, shape, fps, scale = _open_source(source, max_seconds, keep)
+    frames, shape, fps, scale, duration_us = _open_source(source, max_seconds, keep)
     if poses is not None and pose_meta is not None:
         scale = (shape[1] / pose_meta["width"], shape[0] / pose_meta["height"])
         fps = pose_meta.get("fps") or fps
@@ -467,7 +474,7 @@ def clip_features(
         sx, sy = scale if isinstance(scale, tuple) else (scale, scale)
         info["pose_scale"] = [float(sx), float(sy)]
     if events_out is not None:
-        info["events"] = stream.save_hdf5(events_out, keep or [], shape)
+        info["events"] = stream.save_hdf5(events_out, keep or [], shape, duration_us)
         info["events_file"] = str(events_out)
     return feats, info
 
