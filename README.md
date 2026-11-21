@@ -281,27 +281,29 @@ Every tile in the combined video carries one of these labels. A missing stream s
 
 ### Setup
 
-```bash
-uv sync --group vlma
-```
+`uv sync` installs both halves (the `vlma` group is a default group).
 
 Two downloads go in `assets/` (not committed):
 
-- `assets/pose_landmarker_full.task`: MediaPipe Pose Landmarker (full), from the MediaPipe models page.
-- `assets/mujoco_menagerie/unitree_g1/`: from github.com/google-deepmind/mujoco_menagerie.
+```bash
+mkdir -p assets
+curl -L -o assets/pose_landmarker_full.task https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
+git clone --depth 1 --filter=blob:none --sparse https://github.com/google-deepmind/mujoco_menagerie assets/mujoco_menagerie
+git -C assets/mujoco_menagerie sparse-checkout set unitree_g1
+```
 
-Tests: `uv run --group vlma pytest tests/test_pose.py tests/test_robot.py tests/test_steam.py tests/test_viewer.py`. The pose and viewer tests that need `clips/sample_walk.mp4` (`one-by-one-person-detection.mp4` from github.com/intel-iot-devkit/sample-videos) skip without it.
+After that the pipeline runs offline.
+
+Tests: `uv run pytest` runs both halves. The pose and viewer tests that need `clips/sample_walk.mp4` (`one-by-one-person-detection.mp4` from github.com/intel-iot-devkit/sample-videos) skip without it.
 
 ### One command
 
 ```bash
-uv run --group vlma python -m vlma.run clip.mp4 \
-  --events-cmd "eventify export {clip} {out}/events.h5 --interp 3 --sensor-size 320,180" \
-  --score-cmd "python -m dance.score {clip} --out {out}/scores.npy --dancers 1" \
-  --steam 0,10,20,30,40,60
+uv run python -m vlma.run clip.mp4 --score-cmd "python -m dance.run {out}"
+uv run python -m vlma.run clip.mp4 --score-cmd "python -m dance.run {out}" --steam 0,10,20,30,40,60
 ```
 
-Stages in order: pose, robot, events, score, combined video, steam sweep. Output in `episodes/<clip name>/`: `panel.mp4` (the TV video), `poses.npy`, `meta.json`, `pose3d.npz`, `skeleton.mp4`, `robot.npz`, `robot.mp4`, `events.h5`, `scores.npy`, `steam_metrics.csv`, `steam_curve.png`. Steam levels go in `episodes/<clip name>__steam<NN>/`.
+Stages in order: pose, robot, events and score (`dance.run`), combined video, and the optional steam sweep. Output in `episodes/<clip name>/`: `panel.mp4` (the TV video), `poses.npy`, `meta.json`, `pose3d.npz`, `skeleton.mp4`, `robot.npz`, `robot.mp4`, `events.h5`, `scores.npy`, `steam_metrics.csv`, `steam_curve.png`. Steam levels go in `episodes/<clip name>__steam<NN>/`.
 
 On macOS the robot render needs a normal user session (MuJoCo offscreen rendering uses the window server).
 
@@ -335,8 +337,8 @@ The audio twin of the event camera: a simulated silicon cochlea. A phone recordi
 From the events: breaths per minute and pauses in breathing (gaps longer than 10 s, or 2.5 times the median gap). The robot slumps asleep and rises a little with each snore; during a pause it wakes up with a scripted alarm pose.
 
 ```bash
-uv run --group vlma python -m vlma.ears clips/snore.m4a
-uv run --group vlma python -m vlma.ears clips/snore.m4a --demo-pause 12,16
+uv run python -m vlma.ears clips/snore.m4a
+uv run python -m vlma.ears clips/snore.m4a --demo-pause 12,16
 ```
 
 On our 45 s recording: about 11,500 simulated events per second, 16.2 breaths per minute, no pause. `--demo-pause` silences a stretch on purpose to show the detector; that video says "demo: pause inserted by us" on every frame. Not a medical device. The recording itself is not in the repo.

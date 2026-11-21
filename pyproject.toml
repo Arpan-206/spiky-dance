@@ -13,6 +13,7 @@ dependencies = [
 
 [tool.uv]
 package = false
+default-groups = ["dev", "vlma"]
 
 [dependency-groups]
 dev = [
