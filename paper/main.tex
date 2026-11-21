@@ -79,7 +79,7 @@
 \maketitle
 
 \begin{abstract}
-Robots have folded many towels and, to our knowledge, performed no macarenas. \vlma{} is a laptop-only pipeline that turns one phone clip into a time-aligned humanoid episode: an event-camera stream \emph{simulated} from the video, a pose \emph{estimated} by MediaPipe, a Unitree G1 that \emph{replays} the arms in MuJoCo through bounded torso-frame inverse kinematics, and a per-dancer unusualness score from a spiking network calibrated to percentiles of clean dancing. On a public macarena performer held out from training, its author measures a mean of 0.471 against a calibrated 0.5; with models trained in our room, 8 of 9 deliberately bad takes are flagged. We then apply \emph{Finnish onboarding}, a simulated steam veil of rising optical depth. Pose tracking holds at \DetSTwenty\% of frames at level 20 ($\bar T=\TransSTwenty$), falls to \DetSForty\% at level 40 and to \DetSSixty\% at level 60, while the mean unusualness score rises from \UnuSZero{} to \UnuSTwenty{} by level 20: the scorer notices the steam before the tracker fails. A simulated silicon cochlea on a real snore adds a breathing cadence of \SnoreBpm{} per minute. The episode runs on one CPU in one command. Finally, a reinforcement-learning tracking policy trained in about \PhysTrainMin{} minutes on one GPU makes the G1 dance our take in full rigid-body physics: \PhysSeconds\,s without a fall, within \PhysBodyErrCm\,cm of the reference per body.
+Robots have folded many towels and, to our knowledge, performed no macarenas. \vlma{} is a laptop-only pipeline that turns one phone clip into a time-aligned humanoid episode: an event-camera stream \emph{simulated} from the video, a pose \emph{estimated} by MediaPipe, a Unitree G1 that \emph{replays} the arms in MuJoCo through bounded torso-frame inverse kinematics, and a per-dancer unusualness score from a spiking network calibrated to percentiles of clean dancing. On a public macarena performer held out from training, its author measures a mean of 0.471 against a calibrated 0.5; with models trained in our room, 8 of 9 deliberately bad takes are flagged. We then apply \emph{Finnish onboarding}, a simulated steam veil of rising optical depth. Pose tracking holds at \DetSTwenty\% of frames at level 20 ($\bar T=\TransSTwenty$), falls to \DetSForty\% at level 40 and to \DetSSixty\% at level 60, while the mean unusualness score rises from \UnuSZero{} to \UnuSTwenty{} by level 20: the scorer notices the steam before the tracker fails. A simulated silicon cochlea on a real snore adds a breathing cadence of \SnoreBpm{} per minute. The episode runs on one CPU in one command. Finally, a reinforcement-learning tracking policy trained in about \PhysTrainMin{} minutes on one GPU makes the G1 dance our take in full rigid-body physics: \PhysSeconds\,s without a fall, within \PhysBodyErrCm\,cm of the reference per body, in the range published G1 trackers report in simulation: \sotaish{} on one clip, in simulation only.
 \end{abstract}
 
 \keywords{event cameras \and spiking neural networks \and humanoid retargeting \and robustness \and sauna \and macarena}
@@ -540,7 +540,25 @@ On a real \SnoreSeconds\,s snoring recording the simulated cochlea emits \SnoreE
 \subsection{From replay to physics}
 \label{sec:exp-physics}
 
-After \PhysIter{} PPO iterations, about \PhysTrainMin{} minutes on one \PhysGPU{}, we roll the policy out once over the whole take in simulation, deterministically, with no resets. The G1 completes all \PhysSeconds\,s without falling (fall: pelvis below 0.45\,m or torso tilt beyond 60\textdegree). Its pelvis never drops below \PhysMinHeight\,m, the torso stays upright (minimum cosine to vertical \PhysUpright), and the base drifts at most \PhysDrift\,cm. Tracked bodies stay within \PhysBodyErrCm\,cm of the reference on average; joint angle error is \PhysJointRmse\,rad overall and \PhysArmRmse\,rad on the arms, where the macarena happens. The reference was kinematically feasible to begin with (standing legs, arm motion only), which is the easy case; a jump, a turn or hip motion would be harder. \Cref{fig:physics} shows five frames of the rollout. This is a result in simulation. Sim-to-real transfer to a physical G1 needs domain randomisation and a safety review we have not done.
+After \PhysIter{} PPO iterations (the checkpoint with the lowest error, from a \PhysTrainMin-minute run on one \PhysGPU{}), we roll the policy out once over the whole take in simulation, deterministically, with no resets. The G1 completes all \PhysSeconds\,s without falling (fall: pelvis below 0.45\,m or torso tilt beyond 60\textdegree). Its pelvis never drops below \PhysMinHeight\,m, the torso stays upright (minimum cosine to vertical \PhysUpright), and the base drifts at most \PhysDrift\,cm. Tracked bodies stay within \PhysBodyErrCm\,cm of the reference on average; joint angle error is \PhysJointRmse\,rad overall and \PhysArmRmse\,rad on the arms, where the macarena happens. The reference was kinematically feasible to begin with (standing legs, arm motion only), which is the easy case; a jump, a turn or hip motion would be harder. \Cref{fig:physics} shows five frames of the rollout. This is a result in simulation. Sim-to-real transfer to a physical G1 needs domain randomisation and a safety review we have not done.
+
+\paragraph{How close to the state of the art? \sotaish{}.} \Cref{tab:sota} puts our body error next to published simulation numbers for G1 tracking. Our \PhysBodyErrMm\,mm is lower than both, and the comparison flatters us: theirs is averaged over thousands of clips (GMT~\cite{chen2025gmt}) or 21 agile LAFAN1 motions (BeyondMimic~\cite{liao2025beyondmimic} in~\cite{araujo2025gmr}), with sprints, jumps and crawls, and GMT's AMASS test set is held out from training; ours is one 13\,s standing macarena that the policy was trained on, rolled out once. The metric definitions are close but not identical, and their policies run on real robots. We call this \sotaish{}: a state-of-the-art method, at a state-of-the-art error, on the easiest possible clip.
+
+\begin{table}[t]
+\centering\small
+\caption[Body tracking error against published G1 trackers]{\textbf{\sotaish{}.} Mean body position error in simulation, lower is better. Published rows are copied from the cited tables; they are not the same benchmark as ours.}
+\label{tab:sota}
+\begin{tabular}{@{}llr@{}}
+\toprule
+Method & Motions evaluated & Body error (mm) \\
+\midrule
+GMT~\cite{chen2025gmt}, Table 2 & AMASS test set & 42.07 \\
+GMT~\cite{chen2025gmt}, Table 2 & LAFAN1 & 45.16 \\
+BeyondMimic, Unitree retarget~\cite{araujo2025gmr}, Table II & 21 LAFAN1 motions & 23.2 \\
+\textbf{Ours} (\cref{sec:physics}), checkpoint \PhysIter & 1 clip, trained on it & \textbf{\PhysBodyErrMm} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[tbp]
   \centering
