@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 17:28.
+Last update: 17:50.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,43 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Final state of the scorer side (17:50, frozen)
+
+| Check on main `d495a84`, from a clean checkout | Result |
+|---|---|
+| `uv sync && uv run pytest`, no downloaded files | 150 pass, 17 skip, 4 known failures, 0 fail |
+| The same with the two downloaded files in `assets/` | 161 pass, 6 skip, 4 known failures, 0 fail |
+| Default combined command on a solo room clip (11.4 s) | Runs in 34.2 s: pose 12.3 s, robot 12.1 s, events and score 4.2 s, combined video 4.6 s |
+| Demo path: 4 solo takes, leaderboard, final video | Runs. Display scores 91, 91, 34, 4 for 2 clean and 2 bad takes. |
+
+Backup videos, outside the repo, in `demo_backup/` next to the repo folder:
+
+| File | Content |
+|---|---|
+| `panel_clean_solo.mp4` | The full combined video of one clean solo take, 9.8 s |
+| `demo_clean_solo_then_leaderboard.mp4` | The same, then the leaderboard, 14.8 s |
+| `demo_lowest_then_leaderboard.mp4` | The combined video of the lowest-ranked take, then the leaderboard, 16.1 s |
+| `leaderboard.png`, `leaderboard.mp4`, `leaderboard.json` | The leaderboard of the 4 takes |
+
+Note for the backup: the two clean takes on that leaderboard are also training takes of `models/room`. Their display scores are not a held-out result. The held-out numbers are in the leave-one-out table below.
+
+What is still open:
+
+| Item | Owner |
+|---|---|
+| Scorer numbers in `slides/pitch.pdf` and `paper/` | The other half. `PAPER_UPDATE_NOTES.md` has the list. |
+| Retrain of `models/room` with new clean takes: `uv run python -m dance.train ROOM_CLIPS --out models/room --leave-one-out` | Waits for the takes |
+| Session doubt: clean and bad takes were filmed 30 minutes apart | Needs clean takes from the same session |
+
+## Pull request #3 and a fix in the demo path (17:40)
+
+| Item | State |
+|---|---|
+| Pull request #3 (`paper/`, `slides/pitch.pdf`, `vlma/snore_dance.py`) | Merged at 17:35 as `5a87e2a`, on the decision to merge now and update the paper later |
+| Scorer numbers in the paper and the slides | Out of date. `PAPER_UPDATE_NOTES.md` lists them, with the correct numbers and the commands. |
+| Fault: models trained with strips were scored with pose boxes | Fixed in `7d1a3e8`. A clean take got a display score of 17 instead of 91. |
+| Complete demo path from a clean checkout | Runs: 3 takes through `vlma.run`, the leaderboard, and a final video that ends on the leaderboard. 85 s in total. |
 
 ## Scope since 17:20: one dancer per clip
 

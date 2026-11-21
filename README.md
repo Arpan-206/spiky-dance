@@ -7,6 +7,8 @@ This is the event and scoring half of the hackathon project.
 - Output 2: an "unusualness" score over time for the dancer.
 - Output 3: a leaderboard of several clips, with a display score from 0 to 100 for each dancer.
 
+> **Note on the paper and the slides.** Scorer figures in the abstract and in sections 5.3 and 5.4 of `paper/vlma.pdf` predate the pose-box fix (`7d1a3e8`). Correct values: normal clip 0.471 / 0.033; room result 8 of 9 bad takes flagged, clean and bad filmed 30 minutes apart. `PAPER_UPDATE_NOTES.md` lists the values to change. The same applies to the scorer numbers in `slides/pitch.pdf`.
+
 **Scope: one dancer per clip.** The code for 2 and 3 dancers (vertical strips, `--dancers N`, the sync score, `sync.npy`) is still in the repo, but it is experimental. It is tested only on synthetic clips and on a few YouTube clips, and the sync score does not work on real clips. See `PROGRESS.md`.
 
 A spiking neural network gives the score. A spiking neural network is a network of neurons that send short pulses (spikes). The network learns only from clean macarena clips. A score near 1 means "this motion is unusual for the macarena".
@@ -35,6 +37,28 @@ You need Python 3.12 and [uv](https://docs.astral.sh/uv/).
 uv sync
 uv run pytest
 ```
+
+## Demo path: one dancer per clip
+
+These commands make the complete demo for several solo clips: the combined video for each clip, the leaderboard, and one final video that ends on the leaderboard. They need the two downloaded model files in `assets/` (see "The other half" below).
+
+```bash
+# 1. For each clip: pose, robot, events, score and the combined video
+uv run python -m vlma.run take_a.mp4 --score-cmd "python -m dance.run {out} --models models/room"
+uv run python -m vlma.run take_b.mp4 --score-cmd "python -m dance.run {out} --models models/room"
+
+# 2. The leaderboard: text, leaderboard.png, leaderboard.mp4, leaderboard.json
+uv run python -m dance.leaderboard episodes/take_a episodes/take_b --names "Ann" "Ben" --out episodes/leaderboard.png
+
+# 3. One video: the combined video of the lowest-ranked clip, then the leaderboard
+ffmpeg -i episodes/take_b/panel.mp4 -i episodes/leaderboard.mp4 \
+  -filter_complex '[0:v][1:v]concat=n=2:v=1[v]' -map '[v]' episodes/demo.mp4
+```
+
+- Use the same `--models` folder for every clip of one leaderboard.
+- `models/room` is for clips from the room where its clean takes were filmed. `models/dance` is the default for other clips.
+- The lowest-ranked episode is in `episodes/leaderboard.json`, key `lowest`.
+- Measured from a clean checkout: 3 clips of 9 to 12 s, the leaderboard and the final video took 85 s.
 
 ## Two scorers
 
@@ -243,6 +267,8 @@ The features are computed inside the box of each dancer. Coordinates are normali
 An empty bin gives rate 0, polarity 0, centroid 0.5 and a grid of zeros. It gives no NaN.
 
 ## Dancer boxes
+
+The models in the repo were trained with vertical strips. `dance.run` scores with the kind of region that the models were trained with (`train_info.json` in the model folder). So with these models it uses strips, also when the episode folder has a `poses.npy`. The run prints which kind it used. `--regions poses` or `--regions strips` forces one kind.
 
 - With poses: the box around the keypoints of each dancer, padded by 15% on each side.
 - Without poses: equal vertical strips, one for each dancer (`--dancers N`). Dancer 0 is the left strip. Inside its strip, the box centres itself on the dancer: its centre and size follow a slow running median (about 5 s) of the event positions.
