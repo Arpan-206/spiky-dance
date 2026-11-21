@@ -24,3 +24,7 @@ out/
 *.h5
 *.hdf5
 episodes/
+
+# Downloaded models for the pose and robot stages, and caches.
+assets/
+.cache/

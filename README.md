@@ -263,3 +263,84 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 Video files are never committed. `.gitignore` excludes `*.mp4` and `*.mov`.
 
 See `PROGRESS.md` for what runs and what is untested.
+
+## The other half: pose, robot, steam and the TV video (`vlma/`)
+
+`vlma/` turns the same clip into a pose skeleton, a Unitree G1 humanoid in MuJoCo that replays the arms, a sauna steam stress test, and one combined video for the TV. It writes into the same `episodes/<clip name>/` folder as the scorer.
+
+### What is real and what is simulated
+
+| Stream | Status |
+|---|---|
+| Phone video | Real |
+| Event-camera stream | Simulated from the video with eventify |
+| Pose skeleton | Estimated by MediaPipe Pose Landmarker |
+| Humanoid | A kinematic replay of the pose with joint limits. Not a controller, no balance. |
+| Unusualness score | The spiking scorer above, on simulated events |
+| Steam | A simulated veil over the image. Not fitted to real steam. |
+
+Every tile in the combined video carries one of these labels. A missing stream shows "not available yet".
+
+### Setup
+
+`uv sync` installs both halves (the `vlma` group is a default group).
+
+Two downloads go in `assets/` (not committed):
+
+```bash
+mkdir -p assets
+curl -L -o assets/pose_landmarker_full.task https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
+git clone --depth 1 --filter=blob:none --sparse https://github.com/google-deepmind/mujoco_menagerie assets/mujoco_menagerie
+git -C assets/mujoco_menagerie sparse-checkout set unitree_g1
+```
+
+After that the pipeline runs offline.
+
+Tests: `uv run pytest` runs both halves. The pose and viewer tests that need `clips/sample_walk.mp4` (`one-by-one-person-detection.mp4` from github.com/intel-iot-devkit/sample-videos) skip without it.
+
+### One command
+
+```bash
+uv run python -m vlma.run clip.mp4 --score-cmd "python -m dance.run {out}"
+uv run python -m vlma.run clip.mp4 --score-cmd "python -m dance.run {out}" --steam 0,10,20,30,40,60
+```
+
+Stages in order: pose, robot, events and score (`dance.run`), combined video, and the optional steam sweep. Output in `episodes/<clip name>/`: `panel.mp4` (the TV video), `poses.npy`, `meta.json`, `pose3d.npz`, `skeleton.mp4`, `robot.npz`, `robot.mp4`, `events.h5`, `scores.npy`, `steam_metrics.csv`, `steam_curve.png`. Steam levels go in `episodes/<clip name>__steam<NN>/`.
+
+On macOS the robot render needs a normal user session (MuJoCo offscreen rendering uses the window server).
+
+### Steam result so far
+
+A 6-second test clip of one person standing (not a dance), simulated steam:
+
+| Steam level | Frames with the person tracked | Mean unusualness |
+|---|---|---|
+| 0 | 100% | 0.89 |
+| 20 | 100% | 0.98 |
+| 40 | 32% | 0.98 |
+| 60 | 0% | 0.98 |
+
+Pose tracking breaks between levels 30 and 60. The scorer flags the steam as unusual from level 20 and stays at its ceiling. A real macarena clip will replace this table.
+
+### Layout
+
+| Path | Content |
+|---|---|
+| `vlma/pose.py` | MediaPipe video mode, up to 3 dancers, left-to-right identity, COCO-17 in pixels plus 3D world landmarks |
+| `vlma/robot.py` | Arm angles from the 3D pose onto the G1, smoothed and clamped, rendered offscreen |
+| `vlma/steam.py` | Drifting steam veil, sweep over levels, tracking and drift metrics, plot |
+| `vlma/viewer.py` | 2x2 TV video plus score strip, reads `events.h5`, `scores.npy`, `sync.npy`, `scores_meta.json` |
+| `vlma/run.py` | Runs the stages in order |
+
+### The robot's ears (`vlma/ears.py`)
+
+The audio twin of the event camera: a simulated silicon cochlea. A phone recording of someone snoring goes through 64 band-pass channels (50 Hz to 4 kHz, second-order Butterworth). Each channel fires ON and OFF events when its log amplitude changes by a threshold, like a DVS pixel. The events use the same `events.h5` layout, with the channel as `xs`.
+
+From the events: breaths per minute and pauses in breathing (gaps longer than 10 s, or 2.5 times the median gap). The robot slumps asleep and rises a little with each snore; during a pause it wakes up with a scripted alarm pose.
+
+```bash
+uv run python -m vlma.ears clips/snore.m4a
+uv run python -m vlma.ears clips/snore.m4a --demo-pause 12,16
+```
+
+On our 45 s recording: about 11,500 simulated events per second, 16.2 breaths per minute, no pause. `--demo-pause` silences a stretch on purpose to show the detector; that video says "demo: pause inserted by us" on every frame. Not a medical device. The recording itself is not in the repo.

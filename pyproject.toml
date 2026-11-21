@@ -13,10 +13,20 @@ dependencies = [
 
 [tool.uv]
 package = false
+default-groups = ["dev", "vlma"]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+]
+vlma = [
+    "h5py>=3.16.0",
+    "imageio>=2.38.2",
+    "imageio-ffmpeg>=0.8.1",
+    "matplotlib>=3.11.2",
+    "mediapipe==1.2.3",
+    "mujoco==4.0.1",
+    "scipy>=1.18.1",
 ]
 
 [tool.pytest.ini_options]
