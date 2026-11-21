@@ -10,7 +10,7 @@ def load(name):
     return dict(level=g('level'), T=g('mean_transmittance'), det=g('dancer_0_detected_fraction'),
                 conf=g('dancer_0_mean_confidence'), drift=g('dancer_0_mean_keypoint_drift_px'))
 a = load('macarena_solo'); b = load('team_03')
-la, lb = 'public clip (held out)', 'cabin take 3'
+la, lb = 'public clip', 'cabin take 3'
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(FULL, 2.3), gridspec_kw=dict(wspace=0.42))
 ax1.axvspan(25, 45, color=CORAL, alpha=0.07, lw=0)
 ax1.plot(a['level'], a['det'], '-o', color=NAVY, label=f'tracked, {la}')
