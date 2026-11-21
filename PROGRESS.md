@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 15:27.
+Last update: 15:30.
 
 ## What runs
 
@@ -10,9 +10,11 @@ Last update: 15:27.
 | Features | Runs | Pass |
 | Contracts | Written | Not applicable |
 | Baseline scorer (`--scorer baseline`) | Runs | Pass |
-| Scoring offline, live loop, one-command run | Runs | Pass |
+| Scoring offline, one-command run | Runs | Pass |
+| Live mode on the real webcam | Runs, tested by hand at 15:25 | Loop tested with a video file |
 | Synthetic fixtures | Run | Pass |
-| End-to-end tests for jump, freeze, three dancers | Fail | 3 fail, they wait for the spiking model |
+| End-to-end tests, baseline scorer | Run | Pass: jump, freeze, three dancers |
+| End-to-end tests, spiking scorer | Fail | 3 fail, they wait for the spiking model |
 | Spiking model and training | In work | Not merged |
 
 ## Real-clip table
@@ -43,8 +45,31 @@ The baseline separates the freeze clip and the jerky clip from the normal clip. 
 
 No numbers yet. The first port of Mr. Spiky gave the score 1.000 for every bin: every neuron fired in every bin.
 
+## End-to-end test on synthetic clips, baseline scorer
+
+| Synthetic clip | Mean score | Fraction above p90 |
+|---|---|---|
+| Held-out normal | 0.405 | 0.045 |
+| Sudden jumps | 0.729 | 0.459 |
+| Freeze | 0.752 | 0.529 |
+| Three dancers: dancer 0, normal | 0.439 | 0.058 |
+| Three dancers: dancer 1, jumps | 0.652 | 0.413 |
+| Three dancers: dancer 2, normal | 0.389 | 0.054 |
+
+## Live mode on the real webcam
+
+Tested by hand with the baseline scorer and the built-in camera.
+
+| Check | Result |
+|---|---|
+| Text output, 1 strip, 8 s | 81 updates, 243 bins, final table printed |
+| JSON output, 2 strips, 5 s | 50 updates, 10.1 updates per second |
+
+The trained baseline in `models/dance/` comes from one performer on a white background. So live scores from another room are high. Train on your own clean clips for the demo.
+
 ## Untested
 
-- Live mode with a real webcam. The live loop is tested only with a video file.
+- Live mode with the spiking scorer.
+- Ctrl-C in live mode on the real webcam. The runs used `--duration`.
 - Real pose files. All tests use made-up poses or vertical strips.
 - Clips with 2 or 3 real dancers.

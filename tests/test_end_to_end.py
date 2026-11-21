@@ -70,14 +70,18 @@ def samples(tmp_path_factory) -> dict[str, Sample]:
     return out
 
 
-@pytest.fixture(scope="module")
-def model(samples, tmp_path_factory):
-    """Train one time on the normal clips. Load the result through the contract."""
-    from dance.spiky import load_model
-    from dance.train import train
+@pytest.fixture(scope="module", params=["spiky", "baseline"])
+def model(request, samples, tmp_path_factory):
+    """Train one time for each scorer, then load. Both scorers have the same contract."""
+    if request.param == "spiky":
+        from dance.spiky import load_model
+        from dance.train import train
+    else:
+        from dance.baseline import load_model, train
 
-    out_dir = tmp_path_factory.mktemp("run") / "models"
+    out_dir = tmp_path_factory.mktemp(f"models_{request.param}")
     train([samples[name].features for name in TRAIN_PLAN], out_dir)
+    print(f"\n=== scorer: {request.param} ===")
     return load_model(out_dir)
 
 

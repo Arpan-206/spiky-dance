@@ -29,31 +29,43 @@ uv sync
 uv run pytest
 ```
 
+## Two scorers
+
+Both scorers use the same features and give scores with the same meaning.
+
+| Scorer | Flag | Method |
+|---|---|---|
+| Spiking network | `--scorer spiky` | The network from Mr. Spiky |
+| Baseline | `--scorer baseline` | A statistical distance (Mahalanobis distance) to the clean clips. No network. |
+
+`PROGRESS.md` has the measured numbers of both scorers.
+
 ## Commands
 
 Train on a folder of clean clips. All clips in one folder must have the same number of dancers.
 
 ```bash
-uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1
+uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1       # spiking network
+uv run python -m dance.baseline CLIPS_DIR --out models/dance --dancers 1    # baseline
 ```
 
 Score one clip. This is the one-command path. It writes `events.h5` and `scores.npy` and prints the ranking.
 
 ```bash
-uv run python -m dance.run clip.mp4 --out-dir out --dancers 1
+uv run python -m dance.run clip.mp4 --out-dir out --dancers 1 --scorer baseline
 ```
 
 Score only, without the events file. The source is a clip or an eventify `.h5` file.
 
 ```bash
-uv run python -m dance.score clip.mp4 --out scores.npy --dancers 1
+uv run python -m dance.score clip.mp4 --out scores.npy --dancers 1 --scorer baseline
 ```
 
 Score live from the webcam. The command prints a rolling score for each dancer about 10 times a second.
 
 ```bash
-uv run python -m dance.score --live --dancers 2
-uv run python -m dance.score --live --dancers 2 --json    # one JSON object per line
+uv run python -m dance.score --live --dancers 2 --scorer baseline
+uv run python -m dance.score --live --dancers 2 --scorer baseline --json    # one JSON object per line
 ```
 
 Features only.
