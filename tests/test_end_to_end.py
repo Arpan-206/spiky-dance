@@ -70,10 +70,10 @@ def samples(tmp_path_factory) -> dict[str, Sample]:
     return out
 
 
-@pytest.fixture(scope="module", params=["spiky", "baseline"])
+@pytest.fixture(scope="module", params=["spiking", "baseline"])
 def model(request, samples, tmp_path_factory):
     """Train one time for each scorer, then load. Both scorers have the same contract."""
-    if request.param == "spiky":
+    if request.param == "spiking":
         from dance.spiky import load_model
         from dance.train import train
     else:

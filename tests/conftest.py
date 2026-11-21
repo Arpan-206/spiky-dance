@@ -37,14 +37,22 @@ def square_positions(
     return np.stack([x, y], axis=1)
 
 
-def write_square_clip(path: Path, positions: np.ndarray | None, n_frames: int = 60) -> Path:
-    """Write a clip of a white square on black. `positions=None` gives a static clip."""
-    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (WIDTH, HEIGHT))
+def write_square_clip(
+    path: Path, positions: np.ndarray | None, n_frames: int = 60, upscale: int = 1
+) -> Path:
+    """Write a clip of a white square on black. `positions=None` gives a static clip.
+
+    `upscale` multiplies the frame size, for clips larger than the 320 px sensor cap.
+    """
+    size = (WIDTH * upscale, HEIGHT * upscale)
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), FPS, size)
     assert writer.isOpened(), "OpenCV cannot write mp4v test clips"
     for k in range(n_frames):
         frame = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
         x, y = (60, 40) if positions is None else np.rint(positions[k]).astype(int)
         frame[y:y + SQUARE, x:x + SQUARE] = 255
+        if upscale > 1:
+            frame = cv2.resize(frame, size, interpolation=cv2.INTER_NEAREST)
         writer.write(frame)
     writer.release()
     return path

@@ -35,7 +35,7 @@ Both scorers use the same features and give scores with the same meaning.
 
 | Scorer | Flag | Method |
 |---|---|---|
-| Spiking network | `--scorer spiky` | The network from Mr. Spiky |
+| Spiking network | `--scorer spiking` | The network from Mr. Spiky |
 | Baseline | `--scorer baseline` | A statistical distance (Mahalanobis distance) to the clean clips. No network. |
 
 `PROGRESS.md` has the measured numbers of both scorers.
@@ -49,10 +49,11 @@ uv run python -m dance.train CLIPS_DIR --out models/dance --dancers 1       # sp
 uv run python -m dance.baseline CLIPS_DIR --out models/dance --dancers 1    # baseline
 ```
 
-Score one clip. This is the one-command path. It writes `events.h5` and `scores.npy` and prints the ranking.
+Score one clip. This is the one-command path. All output goes in the episode folder `episodes/<clip name>/`.
 
 ```bash
-uv run python -m dance.run clip.mp4 --out-dir out --dancers 1 --scorer baseline
+uv run python -m dance.run clip.mp4 --episodes-dir episodes --dancers 1 --scorer baseline
+uv run python -m dance.run episodes/clip --scorer baseline      # the target is an episode folder
 ```
 
 Score only, without the events file. The source is a clip or an eventify `.h5` file.
@@ -79,6 +80,27 @@ Events only. This is the eventify command with this project's settings.
 ```bash
 uv run eventify export clip.mp4 events.h5 --interp 3 --sensor-size 320,180
 ```
+
+## Episode folders
+
+One clip has one folder: `episodes/<clip name>/`. The clip name is the file name without its suffix. The pose build and this build share the folder.
+
+| File | Writer | Content |
+|---|---|---|
+| `poses.npy` | Pose build | `(frames, dancers, 17, 3)`, pixels of the original video, leftmost dancer = 0, missing joints have confidence 0 |
+| `meta.json` | Pose build | Frame rate, width, height and frame count of the original video |
+| `pose3d.npz` | Pose build | Not used here |
+| `events.h5` | This build | Events, in sensor pixels (at most 320 wide) |
+| `scores.npy` | This build | Scores, `(bins, dancers)` |
+| `scores_meta.json` | This build | `bin_ms`, `bins`, `sensor_width`, `sensor_height`, `scorer`, `threshold`, and the ranking |
+
+This build only reads `poses.npy` and `meta.json`. It never writes them.
+
+Events are in sensor pixels. Poses are in pixels of the original video. So the pose boxes are scaled with the width and height from `meta.json` before the crop.
+
+If `poses.npy` is absent, the run uses vertical strips (`--dancers N`). The run prints which of the two it used.
+
+If the target folder has no video but has `events.h5`, the scores come from that file.
 
 ## Data formats
 
@@ -114,11 +136,9 @@ An empty bin gives rate 0, polarity 0, centroid 0.5 and a grid of zeros. It give
 ## Dancer boxes
 
 - With poses: the box around the keypoints of each dancer, padded by 15% on each side.
-- Without poses: equal vertical strips, one for each dancer (`--dancers N`).
+- Without poses: equal vertical strips, one for each dancer (`--dancers N`). Dancer 0 is the left strip.
 
-The command looks for `<clip name>.poses.npy` or `poses.npy` next to the clip. You can also give `--poses FILE`.
-
-Pose coordinates are read as pixels of the source video. If all coordinates are 1.5 or less, they are read as fractions of the frame.
+`dance.run` reads `poses.npy` and `meta.json` only from the episode folder. `dance.score` looks for `<clip name>.poses.npy` or `poses.npy` next to the clip, and for `meta.json` next to the poses. You can also give `--poses FILE` and `--pose-meta FILE`.
 
 ## Scores
 

@@ -161,7 +161,7 @@ def test_offline_scores_an_eventify_h5_file(moving_clip, tmp_path, fake_model):
     summary = run.run_clip(moving_clip, tmp_path / "a", dancers=2)
     out = tmp_path / "b" / "scores.npy"
     score.main([summary["events_file"], "--out", str(out), "--dancers", "2"])
-    from_clip = np.load(tmp_path / "a" / "scores.npy")
+    from_clip = np.load(summary["scores_file"])
     from_events = np.load(out)
     assert from_events.shape[1] == 2
     assert abs(from_events.shape[0] - from_clip.shape[0]) <= 1
@@ -181,22 +181,92 @@ def test_offline_uses_poses_when_given(moving_clip, tmp_path, fake_model):
     assert json.loads(out.with_suffix(".json").read_text())["regions"] == "poses"
 
 
-def test_run_writes_events_scores_and_summary(moving_clip, tmp_path, fake_model, capsys):
-    out_dir = tmp_path / "out"
-    run.main([str(moving_clip), "--out-dir", str(out_dir), "--dancers", "3"])
+REQUIRED_SCORES_META = ("bin_ms", "bins", "sensor_width", "sensor_height", "scorer", "threshold")
 
-    events, shape = stream.read_hdf5(out_dir / "events.h5")
+
+def test_run_writes_the_episode_folder(moving_clip, tmp_path, fake_model, capsys):
+    episodes = tmp_path / "episodes"
+    run.main([str(moving_clip), "--episodes-dir", str(episodes), "--dancers", "3", "--scorer", "baseline"])
+
+    episode = episodes / "moving"                      # the clip name without its suffix
+    events, shape = stream.read_hdf5(episode / "events.h5")
     assert events.size > 0 and shape == (120, 160)
-    scores = np.load(out_dir / "scores.npy")
+    scores = np.load(episode / "scores.npy")
     assert scores.dtype == np.float32 and scores.shape[1] == 3
     assert scores.min() >= 0 and scores.max() <= 1
-    summary = json.loads((out_dir / "scores.json").read_text())
-    assert summary["bins"] == scores.shape[0]
-    assert summary["events"] == events.size
-    assert len(summary["dancers"]) == 3
+    meta = json.loads((episode / "scores_meta.json").read_text())
+    for key in REQUIRED_SCORES_META:
+        assert key in meta, key
+    assert meta["bin_ms"] == BIN_MS and meta["bins"] == scores.shape[0]
+    assert (meta["sensor_width"], meta["sensor_height"]) == (160, 120)
+    assert meta["scorer"] == "baseline" and meta["threshold"] == 0.90
+    assert meta["regions"] == "strips" and meta["dancers"] == 3
+    assert not (episode / "meta.json").exists()        # their file: never written here
 
     printed = capsys.readouterr().out
     assert "rank" in printed and "events.h5" in printed and "elapsed" in printed
+    assert "vertical strips" in printed
+
+
+def _episode_with_poses(tmp_path):
+    """An episode folder as the pose build leaves it: clip, poses.npy, meta.json, pose3d.npz."""
+    from tests.conftest import square_positions, write_square_clip
+
+    episode = tmp_path / "episodes" / "take1"
+    episode.mkdir(parents=True)
+    write_square_clip(episode / "take1.mp4", square_positions(60), 60, upscale=4)   # 640x480
+    poses = np.zeros((60, 2, 17, 3), dtype=np.float32)
+    poses[:, 0, :, 0] = np.linspace(92, 548, 17)       # pixels of the ORIGINAL video
+    poses[:, 0, :, 1] = np.linspace(72, 408, 17)
+    poses[:, 0, :, 2] = 0.9
+    poses[:, 1, :, 0] = np.linspace(10, 60, 17)
+    poses[:, 1, :, 1] = np.linspace(430, 470, 17)
+    poses[:, 1, :, 2] = 0.9
+    poses[:, 1, 5:, 2] = 0.0                           # missing joints have confidence 0
+    np.save(episode / "poses.npy", poses)
+    (episode / "meta.json").write_text(json.dumps({"fps": 30.0, "width": 640, "height": 480, "frames": 60}))
+    (episode / "pose3d.npz").write_bytes(b"theirs")
+    return episode
+
+
+def test_run_on_an_episode_folder_uses_its_poses_and_meta(tmp_path, fake_model, capsys):
+    episode = _episode_with_poses(tmp_path)
+    their_meta = (episode / "meta.json").read_bytes()
+
+    run.main([str(episode), "--scorer", "baseline"])
+
+    meta = json.loads((episode / "scores_meta.json").read_text())
+    assert meta["regions"] == "poses" and meta["dancers"] == 2
+    assert (meta["sensor_width"], meta["sensor_height"]) == (320, 240)
+    assert meta["pose_scale"] == [0.5, 0.5]            # 640x480 original -> 320x240 sensor
+    assert np.load(episode / "scores.npy").shape == (meta["bins"], 2)
+    assert (episode / "events.h5").exists()
+    assert (episode / "meta.json").read_bytes() == their_meta
+    assert (episode / "pose3d.npz").read_bytes() == b"theirs"
+    assert "pose boxes" in capsys.readouterr().out
+
+
+def test_run_on_an_episode_folder_with_only_events(moving_clip, tmp_path, fake_model):
+    episodes = tmp_path / "episodes"
+    run.main([str(moving_clip), "--episodes-dir", str(episodes)])
+    episode = episodes / "moving"
+    first = np.load(episode / "scores.npy")
+    events_before = (episode / "events.h5").stat().st_mtime_ns
+    (episode / "scores.npy").unlink()
+
+    run.main([str(episode), "--dancers", "2"])         # no video in the folder: reads events.h5
+
+    again = np.load(episode / "scores.npy")
+    assert again.shape[1] == 2 and abs(len(again) - len(first)) <= 1
+    assert (episode / "events.h5").stat().st_mtime_ns == events_before
+
+
+def test_run_stops_on_an_empty_episode_folder(tmp_path, fake_model):
+    empty = tmp_path / "episodes" / "nothing"
+    empty.mkdir(parents=True)
+    with pytest.raises(SystemExit) as stopped:
+        run.main([str(empty)])
+    assert "no video" in str(stopped.value.code)
 
 
 # --------------------------------------------------------- missing artefacts
@@ -225,9 +295,9 @@ def test_score_clip_raises_when_artefacts_are_missing(moving_clip, tmp_path, no_
 
 def test_run_stops_when_artefacts_are_missing(moving_clip, tmp_path, no_artefacts, monkeypatch):
     _forbid_event_work(monkeypatch)
-    out_dir = tmp_path / "out"
+    out_dir = tmp_path / "episodes"
     with pytest.raises(SystemExit) as stopped:
-        run.main([str(moving_clip), "--out-dir", str(out_dir), "--models", str(tmp_path / "empty")])
+        run.main([str(moving_clip), "--episodes-dir", str(out_dir), "--models", str(tmp_path / "empty")])
     assert stopped.value.code not in (0, None)
     assert "dance.train" in str(stopped.value.code)
     assert not out_dir.exists()

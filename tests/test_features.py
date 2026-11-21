@@ -14,6 +14,7 @@ from dance.features import (
     clip_features,
     extract_features,
     pose_boxes,
+    read_pose_meta,
     strip_boxes,
 )
 from tests.conftest import FPS, HEIGHT, WIDTH
@@ -152,3 +153,42 @@ def test_deltas_are_bin_to_bin_differences():
     np.testing.assert_array_equal(feats, add_deltas(base))
     assert np.isfinite(feats).all()
     assert np.abs(feats[..., 14]).max() <= 2 and np.abs(np.delete(feats[..., 13:], 1, axis=-1)).max() <= 1
+
+
+def test_pose_boxes_scale_original_pixels_to_sensor_pixels():
+    """Poses are in pixels of the original video. Events are at most 320 px wide."""
+    poses = np.zeros((3, 1, 17, 3), dtype=np.float32)
+    poses[..., 0] = np.linspace(400, 800, 17)          # original 1280x720
+    poses[..., 1] = np.linspace(200, 600, 17)
+    poses[..., 2] = 0.9
+    poses[:, :, 8, :] = (5000.0, 5000.0, 0.0)          # a missing joint: confidence 0, not used
+    # Sensor 320x180: scale 0.25 -> x 100..200, y 50..150; pad 15% of 100 = 15.
+    boxes = pose_boxes(poses, width=320, height=180, scale=(320 / 1280, 180 / 720))
+    assert tuple(boxes[0, 0]) == (85, 35, 215, 165)
+    # Different scale in x and y (a 4:3 original on a 320x180 sensor).
+    boxes = pose_boxes(poses, width=320, height=180, scale=(0.25, 0.125))
+    assert tuple(boxes[0, 0]) == (85, 17, 215, 83)
+
+
+def test_clip_features_scale_poses_with_the_meta_file(tmp_path):
+    from tests.conftest import square_positions, write_square_clip
+
+    clip = write_square_clip(tmp_path / "big.mp4", square_positions(60), 60, upscale=4)   # 640x480
+    meta_file = tmp_path / "meta.json"
+    meta_file.write_text('{"frame_rate": 30, "width": 640, "height": 480, "frame_count": 60}')
+    pose_meta = read_pose_meta(meta_file)
+    assert pose_meta == {"width": 640, "height": 480, "fps": 30.0, "frames": 60}
+
+    poses = np.zeros((60, 2, 17, 3), dtype=np.float32)
+    poses[:, 0, :, 0] = np.linspace(92, 548, 17)       # around the moving square, original pixels
+    poses[:, 0, :, 1] = np.linspace(72, 408, 17)
+    poses[:, 1, :, 0] = np.linspace(10, 60, 17)        # a corner with no motion
+    poses[:, 1, :, 1] = np.linspace(430, 470, 17)
+    poses[..., 2] = 0.9
+    feats, info = clip_features(clip, poses=poses, pose_meta=pose_meta)
+    assert info["sensor_shape"] == [240, 320] and info["pose_scale"] == [0.5, 0.5]
+    _check(feats, dancers=2)
+    assert (feats[:, 0, 0] > 0).mean() > 0.9           # the square is inside box 0
+    assert np.all(feats[:, 1, 0] == 0)                 # box 1 is empty
+    whole, _ = clip_features(clip, dancers=1)
+    assert (whole[:, 0, 0] > 0).sum() == (feats[:, 0, 0] > 0).sum()

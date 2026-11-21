@@ -31,6 +31,7 @@ CLI: python -m dance.features clip.mp4|events.h5 features.npy [--poses poses.npy
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -72,15 +73,17 @@ def pose_boxes(
     poses: np.ndarray,
     width: int,
     height: int,
-    scale: float = 1.0,
+    scale: float | tuple[float, float] = 1.0,
     pad: float = BOX_PAD,
     min_conf: float = MIN_KEYPOINT_CONF,
 ) -> np.ndarray:
     """Padded keypoint bounding box per pose frame per dancer.
 
     Returns (frames, dancers, 4) ints: x0, y0, x1, y1 in sensor pixels.
-    Pose x, y are taken as source-video pixels and multiplied by `scale`.
+    Pose x, y are pixels of the ORIGINAL video. They are multiplied by `scale`
+    to get sensor pixels. `scale` is one number, or (scale_x, scale_y).
     If every coordinate is <= 1.5, they are taken as 0..1 fractions instead.
+    A joint with confidence 0 is a missing joint and is not used.
     A frame with fewer than 2 confident keypoints reuses the nearest good box.
     A dancer with no good frame at all gets a vertical strip.
     """
@@ -96,7 +99,8 @@ def pose_boxes(
     if valid.any() and float(xy[valid].max()) <= 1.5:
         xy *= np.array([width, height], dtype=np.float32)
     else:
-        xy *= scale
+        sx, sy = scale if isinstance(scale, tuple) else (scale, scale)
+        xy *= np.array([sx, sy], dtype=np.float32)
 
     x = np.where(valid, xy[..., 0], np.nan)
     y = np.where(valid, xy[..., 1], np.nan)
@@ -133,7 +137,7 @@ class Regions:
         poses: np.ndarray | None = None,
         dancers: int = 1,
         pose_fps: float = 30.0,
-        scale: float = 1.0,
+        scale: float | tuple[float, float] = 1.0,
         window_us: int = stream.WINDOW_US,
     ):
         height, width = sensor_shape
@@ -224,6 +228,34 @@ def base_features(frames: np.ndarray, boxes: np.ndarray) -> np.ndarray:
     return out
 
 
+def read_pose_meta(path: str | Path) -> dict:
+    """Read the `meta.json` that the pose build writes. This file is never written here.
+
+    Returns {"width", "height", "fps", "frames"} of the ORIGINAL video. `fps`
+    and `frames` are None when the file does not give them.
+    """
+    raw = json.loads(Path(path).read_text())
+
+    def pick(*names: str):
+        for name in names:
+            if raw.get(name) is not None:
+                return raw[name]
+        return None
+
+    width = pick("width", "w", "frame_width", "video_width")
+    height = pick("height", "h", "frame_height", "video_height")
+    if width is None or height is None:
+        raise ValueError(f"{path}: no width and height found. Keys in the file: {sorted(raw)}")
+    fps = pick("fps", "frame_rate", "framerate", "frameRate")
+    frames = pick("frames", "frame_count", "n_frames", "num_frames", "frameCount")
+    return {
+        "width": int(width),
+        "height": int(height),
+        "fps": float(fps) if fps is not None else None,
+        "frames": int(frames) if frames is not None else None,
+    }
+
+
 def find_poses(near: str | Path) -> Path | None:
     """Look for `<stem>.poses.npy`, then `poses.npy`, next to a clip or events file."""
     near = Path(near)
@@ -273,13 +305,22 @@ def clip_features(
     dancers: int = 1,
     max_seconds: float | None = None,
     events_out: str | Path | None = None,
+    pose_meta: dict | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Clip (video) or eventify HDF5 file -> ((bins, dancers, 26) features, info).
 
     With `events_out`, the events are also saved as eventify HDF5.
+
+    Events are in sensor pixels (at most 320 wide). Poses are in pixels of the
+    original video. `pose_meta` (from `read_pose_meta`) gives the original
+    width and height, so the pose boxes are scaled to sensor pixels before the
+    crop. Without `pose_meta`, the size of the clip itself is used.
     """
     keep: list[np.ndarray] | None = [] if events_out is not None else None
     frames, shape, fps, scale = _open_source(source, max_seconds, keep)
+    if poses is not None and pose_meta is not None:
+        scale = (shape[1] / pose_meta["width"], shape[0] / pose_meta["height"])
+        fps = pose_meta.get("fps") or fps
     regions = Regions(shape, poses, dancers, pose_fps=fps, scale=scale)
     rows = [base_features(frame, regions.boxes(k)) for k, frame in enumerate(frames)]
     if rows:
@@ -294,6 +335,9 @@ def clip_features(
         "dancers": int(regions.dancers),
         "regions": regions.mode,
     }
+    if poses is not None:
+        sx, sy = scale if isinstance(scale, tuple) else (scale, scale)
+        info["pose_scale"] = [float(sx), float(sy)]
     if events_out is not None:
         info["events"] = stream.save_hdf5(events_out, keep or [], shape)
         info["events_file"] = str(events_out)

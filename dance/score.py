@@ -2,20 +2,20 @@
 
 A score is a percentile against the training clips, 0 to 1. So the p90
 threshold is the constant 0.90. All scores come from a trained scorer:
-`--scorer spiky` (the spiking network in `dance.spiky`) or `--scorer baseline`
+`--scorer spiking` (the spiking network in `dance.spiky`) or `--scorer baseline`
 (the statistical distance in `dance.baseline`). When the trained artefacts of
 the selected scorer are missing, the program stops with an error. It never
 invents a score.
 
 Offline:
     python -m dance.score SOURCE [--out scores.npy] [--models models/dance]
-        [--scorer spiky|baseline] [--poses poses.npy] [--dancers N] [--max-seconds S]
+        [--scorer spiking|baseline] [--poses poses.npy] [--dancers N] [--max-seconds S]
     SOURCE is a video clip or an eventify .h5 events file.
     Writes scores.npy (float32, shape (bins, dancers)) and scores.json.
 
 Live:
     python -m dance.score --live [--device 0] [--models models/dance]
-        [--scorer spiky|baseline] [--dancers N] [--duration S] [--warmup-frames 30] [--json]
+        [--scorer spiking|baseline] [--dancers N] [--duration S] [--warmup-frames 30] [--json]
     Reads the webcam through eventify. Gives one update about 10 times a second.
 
 Dancer numbers are column numbers of the scores array. They start at 0. With
@@ -37,17 +37,17 @@ import numpy as np
 
 from . import stream
 from .contracts import BIN_MS, FEATURE_DIM
-from .features import Regions, add_deltas, base_features, clip_features, find_poses
+from .features import Regions, add_deltas, base_features, clip_features, find_poses, read_pose_meta
 
 DEFAULT_MODELS = "models/dance"
-SCORERS = ("spiky", "baseline")
-DEFAULT_SCORER = "spiky"
+SCORERS = ("spiking", "baseline")
+DEFAULT_SCORER = "spiking"
 P90 = 0.90              # scores are percentiles, so the p90 threshold is constant
 EMIT_EVERY = 3          # windows per live update: 3 * 33 ms = about 10 updates a second
 BUFFER_WINDOWS = 90     # live context given to the model: about 3 seconds
 ROLL_WINDOWS = 30       # the live rolling score is the mean of the last second
 TRAIN_HINT = {
-    "spiky": "Run `python -m dance.train` first.",
+    "spiking": "Run `python -m dance.train` first.",
     "baseline": "Run `python -m dance.baseline` first.",
 }
 
@@ -60,7 +60,7 @@ def load(model_dir: str | Path = DEFAULT_MODELS, scorer: str = DEFAULT_SCORER) -
     Only the selected scorer is tried. One scorer never stands in for the other.
     The import is inside the function, so this module imports without the model.
     """
-    if scorer == "spiky":
+    if scorer == "spiking":
         from dance.spiky import load_model
     elif scorer == "baseline":
         from dance.baseline import load_model
@@ -161,6 +161,15 @@ def format_table(summary: dict) -> str:
     return "\n".join(lines)
 
 
+def regions_line(summary: dict) -> str:
+    """One line that says which dancer regions were used."""
+    if summary.get("regions") == "poses":
+        sx, sy = summary.get("pose_scale", [1.0, 1.0])
+        return f"regions: pose boxes from poses.npy, scaled by {sx:.3f} (x) and {sy:.3f} (y) to sensor pixels"
+    count = len(summary["dancers"])
+    return f"regions: vertical strips, {count} dancer(s). No poses.npy was found."
+
+
 def save_scores(scores: np.ndarray, summary: dict, out: str | Path) -> tuple[Path, Path]:
     """Write the scores as .npy and the summary as .json with the same stem."""
     out = Path(out)
@@ -187,6 +196,27 @@ def load_poses(source: str | Path, poses: str | Path | np.ndarray | None = None)
     return np.load(path)
 
 
+def load_pose_meta(source: str | Path, poses: Any = None, pose_meta: Any = None) -> dict | None:
+    """The size of the original video, for the pose scale.
+
+    `pose_meta` is a dict or a path. Without it, a `meta.json` next to the
+    poses file is used when it is there. The file is only read.
+    """
+    if isinstance(pose_meta, dict):
+        return pose_meta
+    if pose_meta is not None:
+        if not Path(pose_meta).exists():
+            raise FileNotFoundError(f"pose meta file not found: {pose_meta}")
+        return read_pose_meta(pose_meta)
+    if isinstance(poses, np.ndarray):
+        return None
+    poses_path = Path(poses) if poses is not None else find_poses(source)
+    if poses_path is None:
+        return None
+    candidate = poses_path.with_name("meta.json")
+    return read_pose_meta(candidate) if candidate.exists() else None
+
+
 def score_clip(
     source: str | Path,
     model_dir: str | Path = DEFAULT_MODELS,
@@ -197,8 +227,13 @@ def score_clip(
     events_out: str | Path | None = None,
     model: Any = None,
     scorer: str = DEFAULT_SCORER,
+    pose_meta: str | Path | dict | None = None,
+    auto_poses: bool = True,
 ) -> tuple[np.ndarray, dict]:
     """Clip or eventify .h5 file -> ((bins, dancers) scores, summary).
+
+    With `auto_poses=False`, only the given `poses` are used. No poses file
+    next to the source is looked for.
 
     The model is loaded before the event work. So missing artefacts stop the
     run at once. With `events_out`, the events are also saved as eventify HDF5.
@@ -207,8 +242,9 @@ def score_clip(
         raise FileNotFoundError(f"source not found: {source}")
     if model is None:
         model = load(model_dir, scorer)
-    pose_array = load_poses(source, poses)
-    features, info = clip_features(source, pose_array, dancers, max_seconds, events_out)
+    pose_array = load_poses(source, poses) if (poses is not None or auto_poses) else None
+    meta = load_pose_meta(source, poses, pose_meta) if pose_array is not None else None
+    features, info = clip_features(source, pose_array, dancers, max_seconds, events_out, meta)
     scores, summary = score_features(model, features)
     summary.update(
         source=str(source),
@@ -217,6 +253,8 @@ def score_clip(
         regions=info["regions"],
         sensor_shape=info["sensor_shape"],
     )
+    if "pose_scale" in info:
+        summary["pose_scale"] = info["pose_scale"]
     if events_out is not None:
         summary.update(events_file=str(events_out), events=info["events"])
     return scores, summary
@@ -372,6 +410,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--models", default=DEFAULT_MODELS, help="folder with the trained artefacts")
     p.add_argument("--scorer", choices=SCORERS, default=DEFAULT_SCORER, help="which trained scorer to use")
     p.add_argument("--poses", default=None, help="poses.npy; default: look next to the source")
+    p.add_argument("--pose-meta", default=None, help="meta.json with the original video size; default: next to the poses")
     p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when there are no poses")
     p.add_argument("--max-seconds", type=float, default=None, help="offline: use only the first S seconds")
     p.add_argument("--live", action="store_true", help="read the webcam and print rolling scores")
@@ -404,13 +443,15 @@ def main(argv: list[str] | None = None) -> None:
             dancers=args.dancers,
             max_seconds=args.max_seconds,
             scorer=args.scorer,
+            pose_meta=args.pose_meta,
         )
     except FileNotFoundError as err:
         stop(str(err))
     summary["elapsed_s"] = round(time.perf_counter() - start, 2)
     npy_path, json_path = save_scores(scores, summary, args.out)
     print(format_table(summary))
-    print(f"scores: {npy_path}, shape {scores.shape}, regions from {summary['regions']}")
+    print(f"scores: {npy_path}, shape {scores.shape}")
+    print(regions_line(summary))
     print(f"summary: {json_path}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")
 

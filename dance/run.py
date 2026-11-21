@@ -1,79 +1,155 @@
-"""One command: clip -> events.h5, scores.npy, scores.json and a ranked table.
+"""One command: clip -> episode folder with events.h5, scores.npy, scores_meta.json.
 
-    python -m dance.run clip.mp4 [--out-dir out] [--models models/dance]
-        [--scorer spiky|baseline] [--poses poses.npy] [--dancers N] [--max-seconds S]
+    python -m dance.run CLIP [--episodes-dir episodes] [--scorer spiking|baseline]
+        [--models models/dance] [--dancers N] [--max-seconds S]
+    python -m dance.run EPISODE_DIR [same options]
 
-The events file is eventify's HDF5 export. The trained model is loaded before
-the event work. When the trained artefacts are missing, the program stops with
-an error and writes no file.
+All output for a clip goes in `<episodes-dir>/<clip name>/`. The clip name is
+the file name without its suffix. With an episode folder as the target, the
+clip is the video file in that folder. If the folder has no video but has an
+`events.h5`, the scores come from that file.
+
+Read from the episode folder, when present (the pose build writes them):
+    poses.npy   (frames, dancers, 17, 3), pixels of the ORIGINAL video,
+                leftmost dancer = 0, missing joints have confidence 0
+    meta.json   frame rate, width, height, frame count of the original video
+
+Written to the episode folder:
+    events.h5          eventify HDF5 export, coordinates in sensor pixels
+    scores.npy         float32 (bins, dancers), values 0 to 1
+    scores_meta.json   bin_ms, bins, sensor size, scorer, threshold, ranking
+
+`meta.json` and `pose3d.npz` are never written or changed here.
+
+The trained scorer is loaded before the event work. When its artefacts are
+missing, the program stops with an error and writes no file.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from . import score
+from . import score, stream
 
 EVENTS_NAME = "events.h5"
 SCORES_NAME = "scores.npy"
+SCORES_META_NAME = "scores_meta.json"
+POSES_NAME = "poses.npy"
+POSE_META_NAME = "meta.json"
+DEFAULT_EPISODES = "episodes"
+
+
+def resolve_episode(target: str | Path, episodes_dir: str | Path = DEFAULT_EPISODES) -> tuple[Path, Path, bool]:
+    """Target -> (episode folder, source to read, True if the source is a clip).
+
+    A clip gives the folder `<episodes_dir>/<clip name>`. A folder is used as it is.
+    """
+    target = Path(target)
+    if target.is_dir():
+        clips = sorted(f for f in target.iterdir() if f.suffix.lower() in stream.VIDEO_SUFFIXES)
+        if len(clips) > 1:
+            names = ", ".join(c.name for c in clips)
+            raise ValueError(f"episode folder {target} has more than one video: {names}")
+        if clips:
+            return target, clips[0], True
+        events = target / EVENTS_NAME
+        if events.exists():
+            return target, events, False
+        raise FileNotFoundError(
+            f"episode folder {target} has no video and no {EVENTS_NAME}. "
+            "Give the clip: python -m dance.run CLIP --episodes-dir DIR"
+        )
+    if not target.exists():
+        raise FileNotFoundError(f"clip or episode folder not found: {target}")
+    return Path(episodes_dir) / target.stem, target, True
 
 
 def run_clip(
-    source: str | Path,
-    out_dir: str | Path = ".",
+    target: str | Path,
+    episodes_dir: str | Path = DEFAULT_EPISODES,
     model_dir: str | Path = score.DEFAULT_MODELS,
     *,
-    poses: str | Path | np.ndarray | None = None,
     dancers: int = 1,
     max_seconds: float | None = None,
     model: Any = None,
     scorer: str = score.DEFAULT_SCORER,
 ) -> dict:
-    """Clip -> `<out_dir>/events.h5`, `scores.npy`, `scores.json`. Returns the summary."""
+    """Clip or episode folder -> events.h5, scores.npy, scores_meta.json. Returns the summary."""
     start = time.perf_counter()
-    if not Path(source).exists():
-        raise FileNotFoundError(f"source not found: {source}")
+    episode, source, is_clip = resolve_episode(target, episodes_dir)
     if model is None:
         model = score.load(model_dir, scorer)      # before any event work and any output
-    out_dir = Path(out_dir)
+
+    # Poses and their meta file come only from the episode folder.
+    poses_path = episode / POSES_NAME
+    meta_path = episode / POSE_META_NAME
+    has_poses = poses_path.exists()
+    episode.mkdir(parents=True, exist_ok=True)
+    events_path = episode / EVENTS_NAME
     scores, summary = score.score_clip(
         source,
         model_dir,
-        poses=poses,
+        poses=poses_path if has_poses else None,
+        auto_poses=False,
+        pose_meta=meta_path if has_poses and meta_path.exists() else None,
         dancers=dancers,
         max_seconds=max_seconds,
-        events_out=out_dir / EVENTS_NAME,
+        events_out=events_path if is_clip else None,
         model=model,
         scorer=scorer,
     )
-    summary["elapsed_s"] = round(time.perf_counter() - start, 2)
-    npy_path, json_path = score.save_scores(scores, summary, out_dir / SCORES_NAME)
-    summary.update(scores_file=str(npy_path), summary_file=str(json_path))
+    np.save(episode / SCORES_NAME, scores)
+
+    height, width = summary["sensor_shape"]
+    scores_meta = {
+        "bin_ms": summary["bin_ms"],
+        "bins": summary["bins"],
+        "sensor_width": int(width),
+        "sensor_height": int(height),
+        "scorer": scorer,
+        "threshold": summary["threshold"],
+        "dancers": len(summary["dancers"]),
+        "regions": summary["regions"],
+        "pose_scale": summary.get("pose_scale"),
+        "ranking": summary["ranking"],
+        "per_dancer": summary["dancers"],
+        "source": Path(source).name,
+        "events_file": EVENTS_NAME,
+        "scores_file": SCORES_NAME,
+    }
+    (episode / SCORES_META_NAME).write_text(json.dumps(scores_meta, indent=2) + "\n")
+
+    summary.update(
+        episode=str(episode),
+        events_file=str(events_path),
+        scores_file=str(episode / SCORES_NAME),
+        scores_meta_file=str(episode / SCORES_META_NAME),
+        elapsed_s=round(time.perf_counter() - start, 2),
+    )
     return summary
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Clip -> events, scores and a ranked table of dancers")
-    p.add_argument("source", help="video clip")
-    p.add_argument("--out-dir", default=".", help="folder for events.h5, scores.npy and scores.json")
+    p = argparse.ArgumentParser(description="Clip -> episode folder with events, scores and a ranked table")
+    p.add_argument("target", help="video clip, or an episode folder")
+    p.add_argument("--episodes-dir", default=DEFAULT_EPISODES, help="for a clip: output goes in EPISODES_DIR/<clip name>/")
     p.add_argument("--models", default=score.DEFAULT_MODELS, help="folder with the trained artefacts")
     p.add_argument("--scorer", choices=score.SCORERS, default=score.DEFAULT_SCORER, help="which trained scorer to use")
-    p.add_argument("--poses", default=None, help="poses.npy; default: look next to the source")
-    p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when there are no poses")
+    p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when the episode has no poses.npy")
     p.add_argument("--max-seconds", type=float, default=None, help="use only the first S seconds")
     args = p.parse_args(argv)
 
     try:
         summary = run_clip(
-            args.source,
-            args.out_dir,
+            args.target,
+            args.episodes_dir,
             args.models,
-            poses=args.poses,
             dancers=args.dancers,
             max_seconds=args.max_seconds,
             scorer=args.scorer,
@@ -81,9 +157,12 @@ def main(argv: list[str] | None = None) -> None:
     except FileNotFoundError as err:
         score.stop(str(err))
     print(score.format_table(summary))
-    print(f"events: {summary['events_file']}, {summary['events']} events")
-    print(f"scores: {summary['scores_file']}, {summary['bins']} bins, regions from {summary['regions']}")
-    print(f"summary: {summary['summary_file']}")
+    print(f"episode: {summary['episode']}")
+    if "events" in summary:
+        print(f"events: {summary['events_file']}, {summary['events']} events")
+    print(f"scores: {summary['scores_file']}, {summary['bins']} bins, {args.scorer} scorer")
+    print(score.regions_line(summary))
+    print(f"scores meta: {summary['scores_meta_file']}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")
 
 
