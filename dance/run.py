@@ -44,6 +44,7 @@ from typing import Any
 import numpy as np
 
 from . import score, stream
+from .display import display_score, load_remap
 from .features import read_pose_meta
 
 EVENTS_NAME = "events.h5"
@@ -142,13 +143,19 @@ def run_clip(
         (episode / SYNC_NAME).unlink()         # an old file of a run with more dancers
 
     height, width = summary["sensor_shape"]
+    remap = load_remap(model_dir, scorer)
+    for row in summary["dancers"]:
+        row["display_score"] = round(display_score(row["mean_score"], remap), 1)
     scores_meta = {
         "bin_ms": summary["bin_ms"],
         "bins": summary["bins"],
         "sensor_width": int(width),
         "sensor_height": int(height),
         "scorer": scorer,
+        "models": str(model_dir),
         "threshold": summary["threshold"],
+        "display_score": [row["display_score"] for row in summary["dancers"]],
+        "display_remap_fitted": bool(remap.get("fitted")),
         "dancers": len(summary["dancers"]),
         "regions": summary["regions"],
         "pose_scale": summary.get("pose_scale"),
