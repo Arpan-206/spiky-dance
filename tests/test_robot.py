@@ -4,8 +4,12 @@ import mujoco
 import numpy as np
 import pytest
 
+from vlma.robot import MODEL_PATH
 from vlma.robot import (_arm_indices, generate_fixture, load_model, retarget,
                         run_robot, torso_frame)
+
+
+pytestmark = pytest.mark.skipif(not MODEL_PATH.exists(), reason='download assets/mujoco_menagerie/unitree_g1, see README')
 
 
 @pytest.fixture(scope='module')

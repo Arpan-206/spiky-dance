@@ -5,7 +5,7 @@ import pytest
 
 from vlma.ears import (CHANNEL_HZ, FPS, SAMPLE_RATE, breathing_analysis,
                        cochlea_events, decode_audio, robot_trajectory, write_events)
-from vlma.robot import load_model
+from vlma.robot import MODEL_PATH, load_model
 
 
 def synthetic_breaths(pause=False):
@@ -77,6 +77,7 @@ def test_decode_real_ffmpeg_path_on_synthetic_audio(tmp_path):
     assert np.sqrt(np.mean(decoded ** 2)) == pytest.approx(.1, rel=.01)
 
 
+@pytest.mark.skipif(not MODEL_PATH.exists(), reason='download assets/mujoco_menagerie/unitree_g1, see README')
 def test_scripted_robot_limits_standing_and_alarm():
     audio = synthetic_breaths(True)
     analysis, envelope = breathing_analysis(audio)

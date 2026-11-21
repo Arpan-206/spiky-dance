@@ -7,7 +7,9 @@ import cv2
 import numpy as np
 import pytest
 
-from vlma.pose import run_pose
+from vlma.pose import MODEL_PATH, run_pose
+
+pytestmark = pytest.mark.skipif(not MODEL_PATH.exists(), reason='download assets/pose_landmarker_full.task, see README')
 
 
 ROOT = Path(__file__).resolve().parents[1]
