@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 17:28.
+Last update: 17:42.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,15 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Pull request #3 and a fix in the demo path (17:40)
+
+| Item | State |
+|---|---|
+| Pull request #3 (`paper/`, `slides/pitch.pdf`, `vlma/snore_dance.py`) | Merged at 17:35 as `5a87e2a`, on the decision to merge now and update the paper later |
+| Scorer numbers in the paper and the slides | Out of date. `PAPER_UPDATE_NOTES.md` lists them, with the correct numbers and the commands. |
+| Fault: models trained with strips were scored with pose boxes | Fixed in `7d1a3e8`. A clean take got a display score of 17 instead of 91. |
+| Complete demo path from a clean checkout | Runs: 3 takes through `vlma.run`, the leaderboard, and a final video that ends on the leaderboard. 85 s in total. |
 
 ## Scope since 17:20: one dancer per clip
 
