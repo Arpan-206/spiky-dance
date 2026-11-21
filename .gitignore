@@ -19,3 +19,5 @@ out/
 *scores.npy
 *scores.json
 *.meta.json
+*.h5
+*.hdf5
