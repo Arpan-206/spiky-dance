@@ -98,7 +98,7 @@ Folder layout:
 
 The command holds out some clean clips, fits on the others, and prints a table by dancer count: the held-out clean clips and the bad clips. For a held-out clean clip, expect a mean near 0.4 to 0.5 and a fraction near 0.10. The command prints a note when a held-out clip is outside the range 0.30 to 0.60. That happens when the clip differs from the training clips, or when there are few training clips.
 
-The models in `models/dance/` were trained with `--no-holdout` on the classic clips of `data/youtube_clips.csv`, so they use all clean clips. Options:
+The models in `models/dance/` were trained with `--no-holdout` on the classic clips of `data/youtube_clips.csv` and 5 clips from the demo room. `models/room/` holds models trained on the 5 room clips only: use `--models models/room` for clips filmed in that room with the same camera. `PROGRESS.md` compares the two. Options:
 
 | Option | Effect |
 |---|---|
@@ -257,7 +257,8 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 | `dance/score.py` | Scoring, offline and live |
 | `dance/run.py` | One command for a clip |
 | `dance/preview.py` | Fallback preview video and live preview window |
-| `models/dance/` | Trained files |
+| `models/dance/` | Trained files, the default |
+| `models/room/` | Trained files for clips from the demo room |
 | `tests/` | Tests and synthetic clips |
 
 Video files are never committed. `.gitignore` excludes `*.mp4` and `*.mov`.

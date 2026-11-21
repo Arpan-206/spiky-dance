@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 16:25.
+Last update: 17:05.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,64 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Merge of the other half and combined runs (17:00)
+
+Pull request #1 (`vlma/`: pose, robot, combined video) is merged into main as `4badf4e`.
+
+| Check on main, from a clean checkout | Result |
+|---|---|
+| `uv sync && uv run pytest`, no `assets/` folder | 139 pass, 15 skip, 4 known failures, 0 fail |
+| The same with the two downloaded model files in `assets/` | 148 pass, 6 skip, 4 known failures, 0 fail |
+
+Combined command: `uv run python -m vlma.run CLIP --score-cmd "python -m dance.run {out}"`
+
+| Real clip | Length | Pose | Robot | Events and score | Combined video | Total |
+|---|---|---|---|---|---|---|
+| 1 dancer, demo room | 13 s | 16.5 s | 11.3 s | 3.8 s | 4.7 s | 37.1 s |
+| 3 dancers, room, other dance version | 25 s | 24.7 s | 26.5 s | 5.6 s | 12.3 s | 69.8 s |
+
+Both runs wrote `panel.mp4`, `events.h5`, `scores.npy`, `scores_meta.json`, and used pose boxes. The 3-dancer run also wrote `sync.npy`.
+
+## Clips from the demo room (17:00)
+
+5 clips of 1 dancer, 10 to 13 s each, the classic steps, one performer. I read all 5 as clean clips. They are outside the repo.
+
+Each cell is "mean score / fraction of bins above p90". One room clip was held out of each training.
+
+| Training set | Held-out room clip, spiking | Held-out room clip, baseline | Held-out YouTube performer, spiking |
+|---|---|---|---|
+| YouTube classic only | 0.172 / 0.008 (clip 1) | not measured | 0.471 / 0.033 |
+| YouTube classic + 4 room clips | 0.192 / 0.003 | 0.142 / 0.000 | 0.515 / 0.042 |
+| 4 room clips only | 0.464 / 0.064 | 0.503 / 0.070 | 0.926 / 0.799 (all YouTube clips) |
+
+- With YouTube clips in the training, a clean room clip scores far below the normal mark of 0.4 to 0.5. The room clips are cleaner than the YouTube clips, and they are only 12% of the training bins. The threshold then comes mostly from the YouTube clips, so the scorer is less sensitive in the room.
+- With room clips only, a clean room clip scores as normal: 0.464 / 0.064.
+
+Two model folders are in the repo:
+
+| Folder | Training | Use |
+|---|---|---|
+| `models/dance/` (default) | 16 classic YouTube clips + 5 room clips | Live webcam, clips from other places |
+| `models/room/` | 5 room clips only | Clips filmed in the demo room with the same camera: `--models models/room` |
+
+Live webcam score in this room, 1 strip, 5 s, the laptop camera:
+
+| Models | Spiking | Baseline |
+|---|---|---|
+| First models (1 YouTube performer) | 0.684 / 0.189 | 0.515 / 0.038 |
+| Classic YouTube set | 0.806 / 0.139 | 0.739 / 0.028 |
+| `models/dance/`: classic YouTube + room clips | 0.599 / 0.073 | 0.425 / 0.000 |
+| `models/room/`: room clips only | 0.958 / 0.953 | 1.000 / 1.000 |
+
+The room-only models fit the room camera, not the laptop camera: on the laptop camera they are at the ceiling. Bad clips and three-dancer clips from the room did not arrive yet, so there is no room table for them.
+
+Bad clips and three-dancer clips with `models/dance/` trained with held-out clips (YouTube only, see the limits below):
+
+| Clips | Spiking | Baseline |
+|---|---|---|
+| Bad dancing, 2 dancers (3 clips) | 0.495 / 0.137 | 0.485 / 0.096 |
+| Other versions, 3 dancers (9 clips) | 0.448 / 0.021 | 0.452 / 0.016 |
 
 ## YouTube clip set (16:25)
 
