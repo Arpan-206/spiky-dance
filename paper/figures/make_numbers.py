@@ -1,0 +1,83 @@
+"""Write ../numbers.tex: every number quoted in the paper that comes from a data file.
+Re-run after a new pipeline run (VLMA_EPISODE selects the episode folder)."""
+import csv, json, h5py, numpy as np
+from style import EP, SEP, EPISODE, DATA, HERE
+COVER = 'team_03'
+ep = SEP / COVER
+m = {}
+def put(k, v): m[k] = v
+meta = json.load(open(ep / 'meta.json'))
+put('EpisodeName', COVER.replace('_', r'\_'))
+put('ClipFrames', meta['n_frames']); put('ClipFps', f"{meta['fps']:g}")
+put('ClipSeconds', f"{meta['n_frames'] / meta['fps']:.1f}"); put('ClipW', meta['width']); put('ClipH', meta['height'])
+put('ClipDancers', meta['dancers'])
+with h5py.File(ep / 'events.h5') as f:
+    e = f['events']; ts = e['ts'][:]; ps = e['ps'][:]; H, W = e.attrs['sensor_shape']
+dur = (ts.max() - ts.min()) / 1e6
+put('EvCount', f"{len(ts):,}".replace(',', '{,}')); put('EvRate', f"{len(ts) / dur / 1e3:.1f}")
+put('EvOnFrac', f"{100 * ps.mean():.1f}"); put('EvW', W); put('EvH', H)
+put('EvPerPixelSec', f"{len(ts) / dur / (W * H):.2f}")
+names = {0: 'Zero', 10: 'Ten', 20: 'Twenty', 30: 'Thirty', 40: 'Forty', 60: 'Sixty', 80: 'Eighty'}
+def steam(path, pre):
+    if not path.exists(): put(pre + 'Available', 0); return []
+    put(pre + 'Available', 1)
+    rows = list(csv.DictReader(open(path)))
+    for r in rows:
+        l = int(r['level']); n = pre + names.get(l, f'L{l}')
+        put(f'Det{n}', f"{100 * float(r['dancer_0_detected_fraction']):.1f}")
+        put(f'Conf{n}', f"{float(r['dancer_0_mean_confidence']):.2f}")
+        put(f'Trans{n}', f"{float(r['mean_transmittance']):.3f}")
+        put(f'Loss{n}', f"{100 - 100 * float(r['mean_transmittance']):.0f}")
+        d = r.get('dancer_0_mean_keypoint_drift_px')
+        put(f'Drift{n}', f"{float(d):.1f}" if d not in (None, '') else '--')
+        u = r.get('unusualness_mean')
+        put(f'Unu{n}', f"{float(u):.3f}" if u not in (None, '') else '--')
+    return rows
+rows = steam(SEP / 'macarena_solo' / 'steam_metrics.csv', 'S')
+steam(SEP / COVER / 'steam_metrics.csv', 'C')
+sm = json.load(open(SEP / 'macarena_solo' / 'meta.json'))
+put('SoloSeconds', f"{sm['n_frames'] / sm['fps']:.1f}"); put('SoloFrames', sm['n_frames']); put('SoloW', sm['width']); put('SoloH', sm['height'])
+ss = json.load(open(SEP / 'macarena_solo' / 'scores_meta.json'))['per_dancer'][0]
+put('SoloScore', f"{ss['mean_score']:.3f}"); put('SoloAbove', f"{ss['fraction_above_p90']:.3f}")
+for i, t in enumerate(['team_01', 'team_02', 'team_03', 'team_04', 'team_05']):
+    L = 'ABCDE'[i]; tm = json.load(open(SEP / t / 'meta.json'))
+    sc = json.load(open(SEP / t / 'scores_meta.json')); d = sc['per_dancer'][0]
+    put(f'Take{L}Sec', f"{tm['n_frames'] / tm['fps']:.1f}"); put(f'Take{L}Bins', d['bins'])
+    put(f'Take{L}Score', f"{d['mean_score']:.3f}"); put(f'Take{L}Above', f"{d['fraction_above_p90']:.3f}")
+    with h5py.File(SEP / t / 'events.h5') as f:
+        tt = f['events/ts'][:]
+    put(f'Take{L}EvRate', f"{len(tt) / ((tt.max() - tt.min()) / 1e6) / 1e3:.1f}")
+    rr = np.load(SEP / t / 'robot.npz', allow_pickle=True); q = rr['qpos']
+    nm = [str(x) for x in rr['joint_names']]; ad = rr['joint_qposadr']
+    arm = [ad[j] for j, x in enumerate(nm) if 'shoulder' in x or 'elbow' in x]
+    put(f'Take{L}ArmRange', f"{np.ptp(q[:, arm], axis=0).sum():.1f}"); put(f'Take{L}Limit', int(rr['limit_hits'].sum()))
+rho = DATA / 'steam_rho.txt'
+put('SteamRho', open(rho).read().strip() if rho.exists() else '??')
+r = np.load(ep / 'robot.npz', allow_pickle=True)
+put('RobotLimitHits', int(r['limit_hits'].sum())); put('RobotFrames', len(r['qpos']))
+q = r['qpos']; moved = np.flatnonzero(np.abs(q - q[0]).max(axis=1) > 1e-4)
+put('RobotFirstMove', f"{moved[0] / float(r['fps']):.1f}" if len(moved) else 'never')
+put('SmoothAlpha', f"{1 - np.exp(-1 / (float(r['fps']) * 0.055)):.2f}")
+t = {row['stage']: row['seconds'] for row in csv.DictReader(open(DATA / 'timings_team03.csv'))}
+put('TPose', t['pose (MediaPipe)']); put('TRobot', t['robot replay (IK, no render)'])
+put('TEvents', t['events (eventify, simulated)']); put('TSteam', t['steam veil, level 40'])
+put('PoseFps', t['pose model fps'])
+sl = {row['stage']: row['seconds'] for row in csv.DictReader(open(DATA / 'timings_solo.csv'))}
+for k, v in sl.items(): put('TSolo' + k, v)
+sn = EP / 'snore'
+if (sn / 'breathing.json').exists():
+    b = json.load(open(sn / 'breathing.json'))
+    put('SnoreAvailable', 1)
+    put('SnoreSeconds', f"{b['duration_s']:.1f}"); put('SnoreBpm', f"{b['breaths_per_min']:.1f}")
+    put('SnoreOnsets', len(b['snore_onsets_s'])); put('SnoreEvRate', f"{b['events_per_s'] / 1e3:.1f}")
+    put('SnoreChannels', b['n_channels']); put('SnoreTheta', f"{b['theta']:.2f}")
+    put('SnoreCadence', f"{b['cadence_correlation']:.2f}"); put('SnorePauses', len(b['pauses']))
+    with h5py.File(sn / 'audio_events.h5') as f:
+        put('SnoreEvCount', f"{len(f['events/ts']):,}".replace(',', '{,}'))
+else:
+    put('SnoreAvailable', 0)
+with open(HERE.parent / 'numbers.tex', 'w') as f:
+    f.write('% Generated by figures/make_numbers.py from the episode data. Do not edit by hand.\n')
+    for k, v in m.items():
+        f.write(f'\\newcommand{{\\{k}}}{{{v}}}\n')
+print(open(HERE.parent / 'numbers.tex').read())

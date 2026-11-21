@@ -1,0 +1,29 @@
+\begin{tikzpicture}[every node/.style={font=\ttfamily\scriptsize, anchor=west, inner sep=1pt}, x=1cm, y=0.44cm]
+\def\row#1#2#3#4#5{%
+  \node at (0,-#1) {#2};
+  \node[font=\sffamily\scriptsize, text=ink!80] at (4.15,-#1) {#3};
+  \node[font=\sffamily\scriptsize, text=ink!80] at (9.0,-#1) {#4};
+  \fill[#5] (13.05,-#1-0.28) rectangle ++(1.6pt,0.56);
+}
+\node[font=\sffamily\scriptsize\bfseries] at (0,0.95) {path};
+\node[font=\sffamily\scriptsize\bfseries] at (4.15,0.95) {array layout};
+\node[font=\sffamily\scriptsize\bfseries] at (9.0,0.95) {writer};
+\draw[slate, line width=0.4pt] (0,0.45) -- (13.4,0.45);
+\node[font=\ttfamily\scriptsize\bfseries] at (0,0) {episodes/<clip\_id>/};
+\draw[slate] (0.18,-0.4) -- (0.18,-12);
+\foreach \i in {1,...,12} \draw[slate] (0.18,-\i) -- (0.38,-\i);
+\begin{scope}[xshift=4mm]
+\row{1}{clip.mp4}{source video, H.264}{phone}{realc}
+\row{2}{meta.json}{fps, width, height, n\_frames, dancers}{vlma.pose}{realc}
+\row{3}{poses.npy}{float32 $(F, D, 17, 3)$: $x, y$ px, conf.}{vlma.pose}{estc}
+\row{4}{pose3d.npz}{world $(F,D,33,3)$ m, vis, image, fps}{vlma.pose}{estc}
+\row{5}{skeleton.mp4}{clip darkened, skeleton drawn}{vlma.pose}{estc}
+\row{6}{robot.npz}{qpos $(F, 36)$, joint names, limit hits}{vlma.robot}{repc}
+\row{7}{robot.mp4}{$640{\times}480$ render, same $F$}{vlma.robot}{repc}
+\row{8}{events.h5}{xs, ys int16; ts int64 \textmu s; ps int8}{eventify}{simc}
+\row{9}{scores.npy}{float32 $(B, D)\in[0,1]$, 33\,ms bins}{spiky-dance}{simc}
+\row{10}{panel.mp4}{$1280{\times}720$, labelled tiles}{vlma.viewer}{ink}
+\row{11}{steam\_metrics.csv}{one row per steam level $\ell$}{vlma.steam}{simc}
+\row{12}{../<clip\_id>\_\_steam<NN>/}{veiled clip + its own pose run}{vlma.steam}{simc}
+\end{scope}
+\end{tikzpicture}
