@@ -113,6 +113,25 @@ Check in the output of `dance.run` that the line says `regions: vertical strips`
 
 For the steam sweep, the score command is `--score-cmd "python -m dance.run {out} --models models/dance"`.
 
-## 7. Slides
+## 7. Slides: every number in `slides/pitch.pdf` that comes from the scorer side
 
-`slides/pitch.pdf` is a PDF, so the scorer side could not read its numbers. Check every unusualness number in it against section 3.
+Read at 17:45 from the merged file (10 slides).
+
+| Slide | Text on the slide | State | Correct value |
+|---|---|---|---|
+| 5 "LIVE: we grade the jury" | "our takes: 0.21 to 0.23" | Stale: pose boxes on models trained with strips | Display scores: clean takes 79 to 100, bad takes 0 to 69. Or as unusualness with room-only models: clean 0.511, bad 0.744. |
+| 5 | "lower is better" | True for the unusualness score only | The leaderboard shows the display score, where higher is better. Use one of the two on stage, not both. |
+| 5 | Screenshot of the panel with the score trace and "D0: 0.08" | Stale: made before the fix | Render the panel again after scoring on main `7d1a3e8` or later |
+| 9 "whats in the repo" | Paper page in the picture: "mean scores of 0.215 to 0.229", "1.5 to 4.8% of bins", "flags 0.425 of bins", "saturates near 0.99 from level 20" | Stale, all four | See section 3. Normal public clip: 0.471 / 0.033. |
+| 9 | Paper page in the picture: "trained on 5 clean clips of one dancer, none of them ours" | Stale | `models/dance`: 16 classic YouTube clips and 5 room takes. `models/room`: 5 room takes only. |
+| 8 "ok honest slide" | "scorer: a small spiking network, about as good as the boring baseline" | Correct | No change |
+| 4 and 9 | "about 35 s per 11 s clip" | Correct | Measured: 37.1 s for a 13 s clip |
+| 3 | "we watched 53 public macarena videos. 13 were usable" | Correct | No change |
+| 4 | "182k simulated events per second" | Correct for a room take | Measured: 181k for take 1 |
+
+Two more points on the slides. They are not scorer numbers.
+
+- Slide 9 says the repo holds "5 macarena clips of us". No video is in the repo. The repo holds code, models and the list of YouTube URLs.
+- Slide 5 says "10 s ago: a judge did the macarena". The combined command takes about 35 s for an 11 s clip.
+
+The result that is not on the slides yet: with models from the same room, 8 of 9 bad takes are flagged, and clean and bad takes were filmed 30 minutes apart.
