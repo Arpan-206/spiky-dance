@@ -301,3 +301,16 @@ Pose tracking breaks between levels 30 and 60. The scorer flags the steam as unu
 | `vlma/steam.py` | Drifting steam veil, sweep over levels, tracking and drift metrics, plot |
 | `vlma/viewer.py` | 2x2 TV video plus score strip, reads `events.h5`, `scores.npy`, `sync.npy`, `scores_meta.json` |
 | `vlma/run.py` | Runs the stages in order |
+
+### The robot's ears (`vlma/ears.py`)
+
+The audio twin of the event camera: a simulated silicon cochlea. A phone recording of someone snoring goes through 64 band-pass channels (50 Hz to 4 kHz, second-order Butterworth). Each channel fires ON and OFF events when its log amplitude changes by a threshold, like a DVS pixel. The events use the same `events.h5` layout, with the channel as `xs`.
+
+From the events: breaths per minute and pauses in breathing (gaps longer than 10 s, or 2.5 times the median gap). The robot slumps asleep and rises a little with each snore; during a pause it wakes up with a scripted alarm pose.
+
+```bash
+uv run --group vlma python -m vlma.ears clips/snore.m4a
+uv run --group vlma python -m vlma.ears clips/snore.m4a --demo-pause 12,16
+```
+
+On our 45 s recording: about 11,500 simulated events per second, 16.2 breaths per minute, no pause. `--demo-pause` silences a stretch on purpose to show the detector; that video says "demo: pause inserted by us" on every frame. Not a medical device. The recording itself is not in the repo.
