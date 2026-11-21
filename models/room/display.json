@@ -2,21 +2,21 @@
   "spiking": {
     "fitted": true,
     "statistic": "mean score of the clip",
-    "clean_ref": 0.510973310470581,
-    "bad_ref": 0.7444071345859105,
+    "clean_ref": 0.5225913950375148,
+    "bad_ref": 0.7137785024113126,
     "clean_display": 90.0,
     "bad_display": 30.0,
-    "n_clean": 5,
+    "n_clean": 7,
     "n_bad": 9
   },
   "baseline": {
     "fitted": true,
     "statistic": "mean score of the clip",
-    "clean_ref": 0.5179835200309754,
-    "bad_ref": 0.7688231243027581,
+    "clean_ref": 0.5212995026792798,
+    "bad_ref": 0.7228699818490043,
     "clean_display": 90.0,
     "bad_display": 30.0,
-    "n_clean": 5,
+    "n_clean": 7,
     "n_bad": 9
   }
 }

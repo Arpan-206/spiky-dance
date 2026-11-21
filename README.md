@@ -8,6 +8,8 @@ This is the event and scoring half of the hackathon project.
 - Output 3: a leaderboard of several clips, with a display score from 0 to 100 for each dancer.
 
 > **Note on the paper and the slides.** Scorer figures in the abstract and in sections 5.3 and 5.4 of `paper/vlma.pdf` predate the pose-box fix (`7d1a3e8`). Correct values: normal clip 0.471 / 0.033; room result 8 of 9 bad takes flagged, clean and bad filmed 30 minutes apart. `PAPER_UPDATE_NOTES.md` lists the values to change. The same applies to the scorer numbers in `slides/pitch.pdf`.
+>
+> **Update 17:55.** 2 clean takes from the setting of the bad takes arrived. With all 7 clean takes in a leave-one-out test, a clean take scores 0.523 / 0.108 and a bad take 0.714 / 0.341. 8 of 9 bad takes (spiking) and 9 of 9 (baseline) score above the highest clean take. A part of the first gap came from the setting: see `PROGRESS.md`.
 
 **Scope: one dancer per clip.** The code for 2 and 3 dancers (vertical strips, `--dancers N`, the sync score, `sync.npy`) is still in the repo, but it is experimental. It is tested only on synthetic clips and on a few YouTube clips, and the sync score does not work on real clips. See `PROGRESS.md`.
 
@@ -121,7 +123,7 @@ It prints the ranked table and writes three files:
 | `leaderboard.mp4` | The same picture as a 5 s video, for the final screen |
 | `leaderboard.json` | The ranking, and `lowest`: the episode with the lowest rank |
 
-The **display score** is a number from 0 to 100. A higher number means a better dance. It is a fixed remap of the mean unusualness of the clip: about 90 for a clean take and about 30 for a bad take. The remap is fitted with the leave-one-out test below and saved as `display.json` in the model folder. A model folder without that file uses default values, and the output says so. `scores.npy` does not change.
+The **display score** is a number from 0 to 100. A higher number means a better dance. It is a fixed remap of the mean unusualness of the clip: about 90 for a clean take and about 30 for a bad take. In the leave-one-out test on the room takes, clean takes got 72 to 100 and bad takes got 0 to 73, so the mildest bad takes are close to the lowest clean take. The remap is fitted with the leave-one-out test below and saved as `display.json` in the model folder. A model folder without that file uses default values, and the output says so. `scores.npy` does not change.
 
 Train on a few takes from one room and one camera, test each clean take against a model that did not see it, and fit the display remap:
 

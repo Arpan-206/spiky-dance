@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 17:50.
+Last update: 17:55.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,46 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## Two clean takes from the setting of the bad takes (17:55)
+
+2 more clean takes arrived, filmed at 17:38 in the same setting as the 9 bad takes. They answer the session doubt.
+
+**Step 1, blind:** the models trained on the 5 clean takes of 16:30 scored the 2 new clean takes before any retraining. Each cell is "mean score / fraction of bins above p90".
+
+| Takes | Spiking | Baseline |
+|---|---|---|
+| 5 clean takes of 16:30, each not seen by its model | 0.511 / 0.114 | 0.518 / 0.113 |
+| 2 new clean takes, later setting, not seen | 0.645 / 0.206 | 0.706 / 0.241 |
+| 9 bad takes, later setting | 0.744 / 0.422 | 0.769 / 0.423 |
+
+So the session doubt was right in part. A clean take from the later setting scores higher than every clean take of 16:30, and higher than 3 of the 9 bad takes. Of the first gap between clean and bad (0.233 on the mean score, spiking), about 0.134 came from the setting and about 0.099 from the dancing.
+
+**Step 2, retrain:** `models/room` now uses all 7 clean takes. Leave-one-out again: train on 6 clean takes, score the 7th and all 9 bad takes.
+
+| Takes | Spiking | Baseline |
+|---|---|---|
+| 7 clean takes, each not seen by its model | 0.523 / 0.108 | 0.521 / 0.104 |
+| Range over the 7 clean takes | 0.456 to 0.581 / 0.037 to 0.156 | 0.453 to 0.566 / 0.040 to 0.176 |
+| The 2 clean takes of the later setting | 0.531 / 0.156 and 0.519 / 0.122 | 0.566 / 0.176 and 0.556 / 0.160 |
+| 9 bad takes | 0.714 / 0.341 | 0.723 / 0.300 |
+
+| Scorer | Bad takes with a mean score above the highest clean take |
+|---|---|
+| Spiking | 8 of 9. The miss is take 170241: 0.578 against 0.581. |
+| Baseline | 9 of 9 |
+
+| Takes | Display scores, spiking | Display scores, baseline |
+|---|---|---|
+| 7 clean takes that the model did not see | 72, 87, 92, 89, 100, 87, 91 | 79, 90, 94, 100, 100, 77, 80 |
+| 9 bad takes | 56, 0, 73, 12, 54, 28, 18, 8, 23 | 55, 1, 71, 21, 61, 33, 4, 2, 22 |
+
+- With a clean take of the same setting in the training, bad dancing still scores higher than clean dancing: 0.714 against 0.523.
+- The margin is small for the mildest bad takes. Three bad takes have a display score of 54 to 73. The lowest clean take has 72 (spiking) or 77 (baseline).
+- The display remap is fitted again: a mean score of 0.523 gives 90, and 0.714 gives 30 (spiking).
+- This replaces the numbers of the 17:15 and 17:28 sections below for `models/room`.
+
+Limit that stays: when one of the 2 new clean takes is held out, the other one is in the training. They were filmed 23 s apart. So this shows that the scorer needs one clean take of the same setting, and that it then works.
 
 ## Final state of the scorer side (17:50, frozen)
 
@@ -35,8 +75,8 @@ What is still open:
 | Item | Owner |
 |---|---|
 | Scorer numbers in `slides/pitch.pdf` and `paper/` | The other half. `PAPER_UPDATE_NOTES.md` has the list. |
-| Retrain of `models/room` with new clean takes: `uv run python -m dance.train ROOM_CLIPS --out models/room --leave-one-out` | Waits for the takes |
-| Session doubt: clean and bad takes were filmed 30 minutes apart | Needs clean takes from the same session |
+| Retrain of `models/room` with new clean takes | Done at 17:55, see the section above |
+| Session doubt: clean and bad takes were filmed 30 minutes apart | Answered in part at 17:55, see the section above |
 
 ## Pull request #3 and a fix in the demo path (17:40)
 

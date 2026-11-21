@@ -40,7 +40,21 @@ All of these use vertical strips, as in the training. All are in `PROGRESS.md` w
 | Classic YouTube clips, this performer not in the training | 0.471 / 0.033 | 0.518 / 0.037 |
 | The same plus 4 room takes | 0.515 / 0.042 | 0.514 / 0.037 |
 
-### Room takes: leave-one-out with room-only models
+### Room takes, final numbers (17:55): leave-one-out with 7 clean takes
+
+Use these numbers. They replace the table below, which had only the 5 clean takes of 16:30.
+
+| Takes | Spiking | Baseline |
+|---|---|---|
+| 7 clean takes, each not seen by its model | 0.523 / 0.108 | 0.521 / 0.104 |
+| 9 bad takes | 0.714 / 0.341 | 0.723 / 0.300 |
+| Bad takes above the highest clean take, by mean score | 8 of 9 | 9 of 9 |
+| Display scores, clean takes | 72 to 100 | 77 to 100 |
+| Display scores, bad takes | 0 to 73 | 1 to 71 |
+
+2 of the 7 clean takes were filmed in the setting of the bad takes. A model that had not seen that setting gave them 0.645 / 0.206: between clean (0.511) and bad (0.744). So about half of the first gap came from the setting. State this next to the result.
+
+### Room takes, first numbers (17:15): leave-one-out with the 5 clean takes of 16:30
 
 Train on 4 clean takes, score the 5th clean take and all 9 bad takes. This is the main result for the single-dancer demo.
 
