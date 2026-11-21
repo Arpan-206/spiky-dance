@@ -540,7 +540,14 @@ On a real \SnoreSeconds\,s snoring recording the simulated cochlea emits \SnoreE
 \subsection{From replay to physics}
 \label{sec:exp-physics}
 
-After \PhysIter{} PPO iterations, about \PhysTrainMin{} minutes on one \PhysGPU{}, we roll the policy out once over the whole take in simulation, deterministically, with no resets. The G1 completes all \PhysSeconds\,s without falling (fall: pelvis below 0.45\,m or torso tilt beyond 60\textdegree). Its pelvis never drops below \PhysMinHeight\,m, the torso stays upright (minimum cosine to vertical \PhysUpright), and the base drifts at most \PhysDrift\,cm. Tracked bodies stay within \PhysBodyErrCm\,cm of the reference on average; joint angle error is \PhysJointRmse\,rad overall and \PhysArmRmse\,rad on the arms, where the macarena happens. The reference was kinematically feasible to begin with (standing legs, arm motion only), which is the easy case; a jump, a turn or hip motion would be harder. This is a result in simulation. Sim-to-real transfer to a physical G1 needs domain randomisation and a safety review we have not done.
+After \PhysIter{} PPO iterations, about \PhysTrainMin{} minutes on one \PhysGPU{}, we roll the policy out once over the whole take in simulation, deterministically, with no resets. The G1 completes all \PhysSeconds\,s without falling (fall: pelvis below 0.45\,m or torso tilt beyond 60\textdegree). Its pelvis never drops below \PhysMinHeight\,m, the torso stays upright (minimum cosine to vertical \PhysUpright), and the base drifts at most \PhysDrift\,cm. Tracked bodies stay within \PhysBodyErrCm\,cm of the reference on average; joint angle error is \PhysJointRmse\,rad overall and \PhysArmRmse\,rad on the arms, where the macarena happens. The reference was kinematically feasible to begin with (standing legs, arm motion only), which is the easy case; a jump, a turn or hip motion would be harder. \Cref{fig:physics} shows five frames of the rollout. This is a result in simulation. Sim-to-real transfer to a physical G1 needs domain randomisation and a safety review we have not done.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/out/physics_strip.pdf}
+  \caption[The G1 dancing our take in simulated physics]{\textbf{From replay to physics.} The PPO tracking policy (\cref{eq:track-reward,eq:ppo}) after \PhysIter{} iterations, rolled out once over cabin take 3 in simulated rigid-body physics. The robot balances on its own feet and applies joint torques; it does not fall. Simulated physics; not run on a real robot.}
+  \label{fig:physics}
+\end{figure}
 
 \subsection{Runtime}
 \label{sec:exp-runtime}
