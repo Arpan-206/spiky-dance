@@ -350,8 +350,10 @@ def _window_features(frames: np.ndarray, boxes: np.ndarray) -> tuple[np.ndarray,
 def read_pose_meta(path: str | Path) -> dict:
     """Read the `meta.json` that the pose build writes. This file is never written here.
 
-    Returns {"width", "height", "fps", "frames"} of the ORIGINAL video. `fps`
-    and `frames` are None when the file does not give them.
+    The agreed keys are fps, width, height, n_frames, dancers, clip_id.
+    Returns {"width", "height", "fps", "frames", "dancers", "clip_id"} of the
+    ORIGINAL video. A value is None when the file does not give it. Only
+    width and height are required.
     """
     raw = json.loads(Path(path).read_text())
 
@@ -366,12 +368,18 @@ def read_pose_meta(path: str | Path) -> dict:
     if width is None or height is None:
         raise ValueError(f"{path}: no width and height found. Keys in the file: {sorted(raw)}")
     fps = pick("fps", "frame_rate", "framerate", "frameRate")
-    frames = pick("frames", "frame_count", "n_frames", "num_frames", "frameCount")
+    frames = pick("n_frames", "frames", "frame_count", "num_frames", "frameCount")
+    dancers = pick("dancers", "n_dancers", "num_dancers")
+    if isinstance(dancers, (list, tuple)):
+        dancers = len(dancers)
+    clip_id = pick("clip_id", "clip", "name")
     return {
         "width": int(width),
         "height": int(height),
         "fps": float(fps) if fps is not None else None,
         "frames": int(frames) if frames is not None else None,
+        "dancers": int(dancers) if dancers is not None else None,
+        "clip_id": str(clip_id) if clip_id is not None else None,
     }
 
 

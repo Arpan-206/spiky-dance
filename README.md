@@ -140,7 +140,8 @@ One clip has one folder: `episodes/<clip name>/`. The clip name is the file name
 | File | Writer | Content |
 |---|---|---|
 | `poses.npy` | Pose build | `(frames, dancers, 17, 3)`, pixels of the original video, leftmost dancer = 0, missing joints have confidence 0 |
-| `meta.json` | Pose build | Frame rate, width, height and frame count of the original video |
+| `clip.mp4` | Pose build | The source clip. Other videos in the folder (`skeleton.mp4`, `robot.mp4`, `panel.mp4`) are not used. |
+| `meta.json` | Pose build | `fps`, `width`, `height`, `n_frames`, `dancers`, `clip_id` of the original video |
 | `pose3d.npz` | Pose build | Not used here |
 | `events.h5` | This build | Events, in sensor pixels (at most 320 wide) |
 | `scores.npy` | This build | Scores, `(bins, dancers)` |
@@ -151,7 +152,9 @@ This build only reads `poses.npy` and `meta.json`. It never writes them.
 
 Events are in sensor pixels. Poses are in pixels of the original video. So the pose boxes are scaled with the width and height from `meta.json` before the crop.
 
-If `poses.npy` is absent, the run uses vertical strips (`--dancers N`). The run prints which of the two it used.
+If `poses.npy` is absent, the run uses vertical strips. The number of strips is `--dancers N`. Without `--dancers`, it is the `dancers` value of `meta.json`, else 1. The run prints which regions it used.
+
+With an episode folder as the target, the source is `clip.mp4`. If there is no `clip.mp4`, the one other video in the folder is the source. More than one other video without a `clip.mp4` is an error.
 
 If the target folder has no video but has `events.h5`, the scores come from that file.
 

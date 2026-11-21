@@ -271,6 +271,62 @@ def test_run_on_an_episode_folder_with_only_events(moving_clip, tmp_path, fake_m
     assert (episode / "events.h5").stat().st_mtime_ns == events_before
 
 
+def test_run_uses_clip_mp4_when_the_folder_has_other_videos(moving_clip, static_clip, tmp_path, fake_model, capsys):
+    """The other build puts skeleton.mp4, robot.mp4 and panel.mp4 in the same episode folder."""
+    import shutil
+
+    episode = tmp_path / "episodes" / "take7"
+    episode.mkdir(parents=True)
+    shutil.copy(moving_clip, episode / "clip.mp4")
+    for other in ("skeleton.mp4", "robot.mp4", "panel.mp4", "preview.mp4"):
+        shutil.copy(static_clip, episode / other)          # static: they would give no events
+    (episode / "meta.json").write_text(json.dumps(
+        {"fps": 30.0, "width": 160, "height": 120, "n_frames": 60, "dancers": 3, "clip_id": "take7"}
+    ))
+
+    run.main([str(episode)])                               # no --dancers: read it from meta.json
+
+    meta = json.loads((episode / "scores_meta.json").read_text())
+    assert meta["source"] == "clip.mp4"
+    assert meta["dancers"] == 3 and meta["regions"] == "strips"
+    events, _ = stream.read_hdf5(episode / "events.h5")
+    assert events.size > 0                                 # the moving clip, not a static one
+    assert np.load(episode / "scores.npy").shape[1] == 3
+    assert "from meta.json" in capsys.readouterr().out
+
+    run.main([str(episode), "--dancers", "2"])             # --dancers wins over meta.json
+    assert np.load(episode / "scores.npy").shape[1] == 2
+
+
+def test_run_without_clip_mp4_uses_the_one_other_video_or_stops(moving_clip, static_clip, tmp_path, fake_model):
+    import shutil
+
+    episode = tmp_path / "episodes" / "take8"
+    episode.mkdir(parents=True)
+    shutil.copy(moving_clip, episode / "dance.mp4")
+    shutil.copy(static_clip, episode / "preview.mp4")      # our own preview is never the source
+    run.main([str(episode)])
+    assert json.loads((episode / "scores_meta.json").read_text())["source"] == "dance.mp4"
+
+    shutil.copy(static_clip, episode / "robot.mp4")        # now two other videos and no clip.mp4
+    with pytest.raises(SystemExit) as stopped:
+        run.main([str(episode)])
+    assert "more than one other video" in str(stopped.value.code)
+    assert "clip.mp4" in str(stopped.value.code)
+
+
+def test_meta_json_keys_of_the_other_build(tmp_path):
+    from dance.features import read_pose_meta
+
+    path = tmp_path / "meta.json"
+    path.write_text(json.dumps(
+        {"fps": 25.0, "width": 1280, "height": 720, "n_frames": 750, "dancers": 3, "clip_id": "room_01"}
+    ))
+    assert read_pose_meta(path) == {
+        "width": 1280, "height": 720, "fps": 25.0, "frames": 750, "dancers": 3, "clip_id": "room_01",
+    }
+
+
 def test_run_stops_on_an_empty_episode_folder(tmp_path, fake_model):
     empty = tmp_path / "episodes" / "nothing"
     empty.mkdir(parents=True)
