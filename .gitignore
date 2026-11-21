@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.env
+
+# Never commit video files.
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Local clips and per-run outputs.
+clips/
+out/
+*events.npy
+*scores.npy
+*scores.json
+*.meta.json
