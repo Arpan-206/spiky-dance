@@ -78,14 +78,14 @@
 \maketitle
 
 \begin{abstract}
-Robots have folded many towels and, to our knowledge, performed no macarenas. \vlma{} is a laptop-only pipeline that turns one phone clip into a time-aligned humanoid episode: an event-camera stream \emph{simulated} from the video, a pose \emph{estimated} by MediaPipe, a Unitree G1 that \emph{replays} the arms in MuJoCo through bounded torso-frame inverse kinematics, and a per-dancer unusualness score from a spiking network calibrated to percentiles of clean dancing. On five macarena takes filmed in our cabin, the scorer gives mean scores of \TakeDScore{} to \TakeAScore{} and flags 1.5 to 4.8\% of bins, below the nominal 10\%. On a held-out public macarena clip it flags \SoloAbove{} of bins: it has learned one dancer, not the dance. We then apply \emph{Finnish onboarding}, a simulated steam veil of rising optical depth. Pose tracking holds at \DetSTwenty\% of frames at level 20 ($\bar T=\TransSTwenty$), falls to \DetSForty\% at level 40 and to \DetSSixty\% at level 60, while the unusualness score saturates near 0.99 from level 20: the scorer notices the steam before the tracker fails. A simulated silicon cochlea on a real snore adds a breathing cadence of \SnoreBpm{} per minute. Everything runs on one CPU in one command.
+Robots have folded many towels and, to our knowledge, performed no macarenas. \vlma{} is a laptop-only pipeline that turns one phone clip into a time-aligned humanoid episode: an event-camera stream \emph{simulated} from the video, a pose \emph{estimated} by MediaPipe, a Unitree G1 that \emph{replays} the arms in MuJoCo through bounded torso-frame inverse kinematics, and a per-dancer unusualness score from a spiking network calibrated to percentiles of clean dancing. On a held-out public macarena video the scorer is close to calibrated (mean \SoloScore{}, nominal 0.5). On five macarena takes filmed in our cabin it scores only \TakeEScore{} to \TakeAScore{} and flags 0.3 to 1.5\% of bins against a nominal 10\%: our room looks calmer than its training data, so percentiles need calibration per room. We then apply \emph{Finnish onboarding}, a simulated steam veil of rising optical depth. Pose tracking holds at \DetSTwenty\% of frames at level 20 ($\bar T=\TransSTwenty$), falls to \DetSForty\% at level 40 and to \DetSSixty\% at level 60, while the mean unusualness score rises from \UnuSZero{} to \UnuSTwenty{} by level 20: the scorer notices the steam before the tracker fails. A simulated silicon cochlea on a real snore adds a breathing cadence of \SnoreBpm{} per minute. Everything runs on one CPU in one command.
 \end{abstract}
 
 \keywords{event cameras \and spiking neural networks \and humanoid retargeting \and robustness \and sauna \and macarena}
 
 \vspace{6pt}
 \begin{takeaway}
-\textbf{What is real in this paper.} The phone video and the snoring audio are real recordings. Pose is estimated by MediaPipe. Events, steam and the cochlea are simulated. The humanoid is a kinematic replay with joint limits: it does not balance, learn or apply torques. The spiking scorer was trained on 5 clean clips of one dancer, none of them ours. Every number comes from a file written by the pipeline (\cref{app:repro}).
+\textbf{What is real in this paper.} The phone video and the snoring audio are real recordings. Pose is estimated by MediaPipe. Events, steam and the cochlea are simulated. The humanoid is a kinematic replay with joint limits: it does not balance, learn or apply torques. The spiking scorer was trained by a teammate on 21 clean clips of other dancers, none of them ours. Every number comes from a file written by the pipeline (\cref{app:repro}).
 \end{takeaway}
 
 \clearpage
@@ -97,7 +97,7 @@ Robots have folded many towels and, to our knowledge, performed no macarenas. \v
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figures/out/teaser.pdf}
-  \caption[One macarena, four streams, one command]{\textbf{One macarena, four streams, one command.} Six moves from cabin take 3 (\TakeCSec\,s, \ClipFps\,fps), filmed by the team. Rows: the \emph{real} phone video; events \emph{simulated} from it (ON amber, OFF blue, 100\,ms window); the \emph{estimated} COCO-17 skeleton; the Unitree G1 in MuJoCo as a kinematic \emph{replay} of that pose. Bottom: the spiking scorer's unusualness per 33\,ms bin, a percentile of clean dancing by another dancer; dotted lines mark the six frames. Tiles are cropped to the dancer.}
+  \caption[One macarena, four streams, one command]{\textbf{One macarena, four streams, one command.} Six moves from cabin take 3 (\TakeCSec\,s, \ClipFps\,fps), filmed by the team. Rows: the \emph{real} phone video; events \emph{simulated} from it (ON amber, OFF blue, 100\,ms window); the \emph{estimated} COCO-17 skeleton; the Unitree G1 in MuJoCo as a kinematic \emph{replay} of that pose. Bottom: the spiking scorer's unusualness per 33\,ms bin, a percentile of clean dancing by other dancers; dotted lines mark the six frames. Tiles are cropped to the dancer.}
   \label{fig:teaser}
 \end{figure}
 
@@ -203,7 +203,7 @@ Snoring audio & \realtag & Real recording; only derived, simulated events are st
 Event-camera stream & \simtag & eventify frame-difference model on the video. We have no event camera. \\
 Pose skeleton & \esttag & MediaPipe Pose Landmarker (full). Not ground truth. \\
 Humanoid & \reptag & Kinematic replay with joint limits. No physics balance, no controller, no learning. \\
-Unusualness score & \simtag{} input & Network output on simulated events; trained on 5 clean real clips of one dancer. \\
+Unusualness score & \simtag{} input & Network output on simulated events; trained on 21 clean real clips, none of ours. \\
 Steam & \simtag & Analytic veil; not fitted to real steam. The tracking curve under it is measured. \\
 Cochlea events & \simtag & Software filterbank and comparators; not a chip model, not a medical device. \\
 \bottomrule
@@ -377,7 +377,7 @@ accepted when $R(\tau^\star)\ge0.1$. Snore onsets are envelope peaks with promin
 \section{Experiments}
 \label{sec:exp}
 
-\paragraph{Setup.} Everything runs on one MacBook CPU with Python 3.12, with seeded randomness. The data are five macarena takes of one team member filmed in the cabin today (\ClipW{}$\times$\ClipH{}, \ClipFps\,fps, \TakeDSec{} to \TakeASec\,s) and one public macarena clip of another dancer (\SoloSeconds\,s, \SoloW{}$\times$\SoloH{}). The public clip was not part of the scorer's training and is shown here only as numbers, not frames. The scorer's model was trained by its author on 5 clean 25\,s clips of a third dancer; none of our clips is in its training set. Take 3 has the largest robot arm motion (summed range of the eight arm joints \TakeCArmRange\,rad, against \TakeEArmRange{} to \TakeAArmRange{} for the others) and is used for the figures.
+\paragraph{Setup.} Everything runs on one MacBook CPU with Python 3.12, with seeded randomness. The data are five macarena takes of one team member filmed in the cabin today (\ClipW{}$\times$\ClipH{}, \ClipFps\,fps, \TakeDSec{} to \TakeASec\,s) and one public macarena clip of another dancer (\SoloSeconds\,s, \SoloW{}$\times$\SoloH{}). The public clip was not part of the scorer's training and is shown here only as numbers, not frames. The scorer's default model was trained by its author on 21 clean 25\,s clips, 16 cut from public videos of other dancers and 5 filmed by the author in another room; the public test video and our takes are not in its training set. All scores use the dancer regions the model was trained with (vertical strips). Take 3 has the largest robot arm motion (summed range of the eight arm joints \TakeCArmRange\,rad, against \TakeEArmRange{} to \TakeAArmRange{} for the others) and is used for the figures.
 
 \subsection{Simulated event stream}
 \label{sec:exp-events}
@@ -406,7 +406,7 @@ On take 3 eventify produces \EvCount{} simulated events at $\EvW{\times}\EvH$, \
 \subsection{Finnish onboarding}
 \label{sec:exp-steam}
 
-\Cref{fig:steam} and \cref{tab:steam} give the tracker's response on the public macarena clip; \cref{fig:strip} shows the same veil on our own take. Tracking is unaffected up to level 20 (\DetSTwenty\% of frames, $\bar T=\TransSTwenty$), although keypoints already drift by \DriftSTwenty\,px. It degrades at level 30 (\DetSThirty\%, $\bar T=\TransSThirty$), halves at level 40 (\DetSForty\%, confidence \ConfSForty) and is gone at level 60 (\DetSSixty\%, $\bar T=\TransSSixty$). Measured transmittance follows $e^{-\beta\bar\rho}$ with effective column density $\bar\rho=\SteamRho$ (\cref{fig:steam}b). The unusualness score reacts earlier than the tracker: its mean rises from \UnuSZero{} on the clean clip to \UnuSTen{} at level 10 and \UnuSTwenty{} at level 20, where tracking is still intact. On our own take 3 (right columns of \cref{tab:steam}) the tracker breaks one level earlier: 94.8\% of frames at level 20, 29.4\% at level 30 and none at level 60. The scorer again moves first, from 0.21 clean to 0.61 at level 10 and 0.87 at level 20.
+\Cref{fig:steam} and \cref{tab:steam} give the tracker's response on the public macarena clip; \cref{fig:strip} shows the same veil on our own take. Tracking is unaffected up to level 20 (\DetSTwenty\% of frames, $\bar T=\TransSTwenty$), although keypoints already drift by \DriftSTwenty\,px. It degrades at level 30 (\DetSThirty\%, $\bar T=\TransSThirty$), halves at level 40 (\DetSForty\%, confidence \ConfSForty) and is gone at level 60 (\DetSSixty\%, $\bar T=\TransSSixty$). Measured transmittance follows $e^{-\beta\bar\rho}$ with effective column density $\bar\rho=\SteamRho$ (\cref{fig:steam}b). The unusualness score reacts earlier than the tracker: its mean rises from \UnuSZero{} on the clean clip to \UnuSTen{} at level 10 and \UnuSTwenty{} at level 20, where tracking is still intact. Past level 20 the score falls back slightly, to \UnuSSixty{} at level 60, because a thick veil removes the motion events it reacts to. On our own take 3 (right columns of \cref{tab:steam}) the tracker breaks one level earlier: \DetCTwenty\% of frames at level 20, \DetCThirty\% at level 30 and \DetCSixty\% at level 60. The scorer again moves first, from \UnuCZero{} clean to \UnuCTen{} at level 10 and \UnuCTwenty{} at level 20.
 
 \begin{figure}[tbp]
   \centering
@@ -435,12 +435,12 @@ On take 3 eventify produces \EvCount{} simulated events at $\EvW{\times}\EvH$, \
 \cmidrule(lr){2-6}\cmidrule(l){8-9}
 Level $\ell$ & Mean $\bar T$ & Tracked (\%) & Confidence & Drift (px) & Unusual. & & Tracked (\%) & Unusual. \\
 \midrule
-0  & \TransSZero   & \DetSZero   & \ConfSZero   & \DriftSZero & \UnuSZero & & 100.0 & 0.21 \\
-10 & \TransSTen    & \DetSTen    & \ConfSTen    & \DriftSTen & \UnuSTen & & 100.0 & 0.61 \\
-20 & \TransSTwenty & \DetSTwenty & \ConfSTwenty & \DriftSTwenty & \UnuSTwenty & & 94.8 & 0.87 \\
-\rowcolor{coral!8} 30 & \TransSThirty & \DetSThirty & \ConfSThirty & \DriftSThirty & \UnuSThirty & & 29.4 & 0.79 \\
-\rowcolor{coral!8} 40 & \TransSForty  & \DetSForty  & \ConfSForty  & \DriftSForty & \UnuSForty & & 20.3 & 0.79 \\
-60 & \TransSSixty  & \DetSSixty  & \ConfSSixty  & \DriftSSixty & \UnuSSixty & & 0.0 & 0.79 \\
+0  & \TransSZero   & \DetSZero   & \ConfSZero   & \DriftSZero & \UnuSZero & & \DetCZero & \UnuCZero \\
+10 & \TransSTen    & \DetSTen    & \ConfSTen    & \DriftSTen & \UnuSTen & & \DetCTen & \UnuCTen \\
+20 & \TransSTwenty & \DetSTwenty & \ConfSTwenty & \DriftSTwenty & \UnuSTwenty & & \DetCTwenty & \UnuCTwenty \\
+\rowcolor{coral!8} 30 & \TransSThirty & \DetSThirty & \ConfSThirty & \DriftSThirty & \UnuSThirty & & \DetCThirty & \UnuCThirty \\
+\rowcolor{coral!8} 40 & \TransSForty  & \DetSForty  & \ConfSForty  & \DriftSForty & \UnuSForty & & \DetCForty & \UnuCForty \\
+60 & \TransSSixty  & \DetSSixty  & \ConfSSixty  & \DriftSSixty & \UnuSSixty & & \DetCSixty & \UnuCSixty \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -456,7 +456,7 @@ Level $\ell$ & Mean $\bar T$ & Tracked (\%) & Confidence & Drift (px) & Unusual.
 
 \begin{table}[tbp]
 \centering
-\caption{\textbf{Real macarenas, scored by the default spiking scorer} (\file{scores\_meta.json}). The model was trained on 5 clips of another dancer; none of these clips was in its training set.}
+\caption{\textbf{Real macarenas, scored by the default spiking scorer} (\file{scores\_meta.json}). The model was trained on 21 clean clips of other dancers; none of these clips was in its training set.}
 \label{tab:cabin}
 \small
 \begin{tabular}{@{}l r r c@{}}
@@ -497,7 +497,7 @@ Abnormal: jerky, a jump every 8 frames & 756 & 0.976 / 0.911 & 0.288 / 0.041 & 0
   \label{fig:scorer}
 \end{figure}
 
-\paragraph{Findings.} (i) The scorer does not transfer between dancers in a predictable direction. Our five takes score \emph{below} its own held-out normal clip (means \TakeDScore{} to \TakeAScore{}, 1.5 to 4.8\% of bins flagged), while the public clip scores \SoloScore{} with \SoloAbove{} flagged. A percentile against one dancer measures distance from that dancer, not from the macarena; calibration needs clean clips of the people being scored. (ii) In the author's controlled tests the on/off spiking scorer and the Mahalanobis baseline are about equal: the spiking scorer is slightly better on real clips (0.992 versus 0.911 on jerky motion), the baseline clearly better on synthetic ones (0.880 versus 0.529 on jumps). (iii) The original shift encoding fails as predicted in \cref{sec:scorer}: it scores both abnormal real clips \emph{below} the normal one. (iv) The weights do not specialise. After training they are nearly equal, standard deviation 0.017 to 0.019 around 0.25 (\cref{tab:diag}), so the score approximates a leaky sum of absolute deviations, the same signal as the baseline with memory. The sparsity mechanisms made the network work, but not learn. (v) No scorer detects a 3$\times$ speed-up; that clip was removed from the tables rather than averaged away. (vi) The sync score separates a jumping synthetic dancer (0.538) from two dancers in step (0.244 each); it is untested on real multi-dancer clips.
+\paragraph{Findings.} (i) The scorer transfers to a new dancer in a public video but not to a new room. The held-out public clip scores \SoloScore{} with \SoloAbove{} of bins flagged, near the calibrated 0.5 and 0.10; our five cabin takes score \TakeEScore{} to \TakeAScore{} with 0.3 to 1.5\% flagged, so clean dancing in the dim cabin reads as calmer than clean dancing in the training videos. A percentile is relative to the training mix; calibration needs clean clips from the room being scored. An earlier version of this paper scored with pose boxes on models trained on vertical strips, which inflated the public clip to 0.84; all numbers here use the regions of training. (ii) In the author's controlled tests the on/off spiking scorer and the Mahalanobis baseline are about equal: the spiking scorer is slightly better on real clips (0.992 versus 0.911 on jerky motion), the baseline clearly better on synthetic ones (0.880 versus 0.529 on jumps). (iii) The original shift encoding fails as predicted in \cref{sec:scorer}: it scores both abnormal real clips \emph{below} the normal one. (iv) The weights do not specialise. After training they are nearly equal, standard deviation 0.017 to 0.019 around 0.25 (\cref{tab:diag}), so the score approximates a leaky sum of absolute deviations, the same signal as the baseline with memory. The sparsity mechanisms made the network work, but not learn. (v) No scorer detects a 3$\times$ speed-up; that clip was removed from the tables rather than averaged away. (vi) The sync score separates a jumping synthetic dancer (0.538) from two dancers in step (0.244 each); it is untested on real multi-dancer clips.
 
 \subsection{Robot ears}
 \label{sec:exp-ears}
@@ -539,10 +539,10 @@ Pose estimation dominates every run except the steam sweep, which re-runs pose o
 
 \begin{itemize}
   \item \textbf{Construct validity.} The steam curve measures the response of one pose model to one analytic veil. Real steam has different spectra, droplet sizes, condensation on the lens and a photographer who is very warm. The veil is not fitted to real steam, and the sweep is reported on one clip.
-  \item \textbf{External validity.} Five takes of one team member in one room, and one public clip. The scorer was trained on 5 clips of a third dancer in front of a white background; its scores on new dancers are off in both directions (\cref{tab:cabin}). $n$ is small everywhere.
+  \item \textbf{External validity.} Five takes of one team member in one room, and one public clip. The scorer was trained on 21 clips of other dancers; it is near calibration on a held-out public video but reads our cabin as calmer than its training data (\cref{tab:cabin}). $n$ is small everywhere.
   \item \textbf{Simulated sensors.} The event stream is an idealised frame-difference model with no noise, latency or refractory period; at 25 fps its timing is coarse. It is not sensor data and we do not call it that. The cochlea is equally idealised.
   \item \textbf{The robot.} The G1 replay is kinematic. It ignores balance, torque limits, self-collision and the legs, and does not recover palm orientation. The macarena's palm flip is therefore not performed. A real G1 would not do what the video shows without a controller~\cite{peng2018deepmimic}.
-  \item \textbf{The scorer.} Its weights do not specialise and STDP adds little; the baseline is as good. It is calibrated to one dancer. No scorer detects a 3$\times$ speed-up. Real multi-dancer clips are untested.
+  \item \textbf{The scorer.} Its weights do not specialise and STDP adds little; the baseline is as good. Its percentiles shift between rooms. No scorer detects a 3$\times$ speed-up. Real multi-dancer clips are untested.
   \item \textbf{Internal validity.} The controlled scorer tables were produced by their author and reproduced without a re-run. Runtimes come from one machine and one run each.
   \item \textbf{Researcher degrees of freedom.} We chose the steam levels before seeing the curve and did not tune the veil afterwards; but we chose the veil.
   \item \textbf{Conflict of interest.} The authors stand to win a macarena.
@@ -556,7 +556,7 @@ The most likely deployment of \vlma{} is a wedding. A system that scores each da
 \section{Conclusion}
 \label{sec:conclusion}
 
-A phone, a laptop and an afternoon are enough to turn a macarena into a labelled humanoid episode with simulated events, estimated pose and a kinematic replay that follows the arms through every move except the palm flip. The weak links are measurable. Perception fails between \LossSThirty\% and \LossSForty\% loss of light in simulated steam. The spiking scorer is no better than a Mahalanobis distance, and both measure distance from the dancer they were trained on. The robot cannot yet survive a sauna. Neither could we.
+A phone, a laptop and an afternoon are enough to turn a macarena into a labelled humanoid episode with simulated events, estimated pose and a kinematic replay that follows the arms through every move except the palm flip. The weak links are measurable. Perception fails between \LossSThirty\% and \LossSForty\% loss of light in simulated steam. The spiking scorer is no better than a Mahalanobis distance, and its percentiles hold for a new dancer but not for a new room. The robot cannot yet survive a sauna. Neither could we.
 
 \paragraph{Acknowledgements.} We thank the cabin for its television and the team member who danced the macarena five times.
 
