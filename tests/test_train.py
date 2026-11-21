@@ -302,7 +302,7 @@ def test_weights_after_stdp(tmp_path: Path):
     train(RANDOM_CLIPS, tmp_path, epochs=1, seed=0)
     net = load_model(tmp_path).net
     torch.manual_seed(0)
-    init = SparseSpikyNet()
+    init = SparseSpikyNet(net.fc1.in_features)
     for name in ("fc1", "fc2"):
         w = getattr(net, name).weight.data
         assert torch.isfinite(w).all()
@@ -446,11 +446,16 @@ def _fractions(scores: np.ndarray, mask: np.ndarray | None = None) -> tuple[floa
     return float(s.mean()), float((s >= 0.90).mean())
 
 
-@pytest.mark.xfail(strict=False, reason="the score counts only activity above the baseline")
+@pytest.mark.xfail(
+    strict=False,
+    reason="known failure of the opt-in Mr. Spiky encoding (shift): each input is 0.5 plus a "
+           "small signal and all weights are positive, so a value below the mean lowers the "
+           "current and the score counts only activity above the baseline",
+)
 def test_separation_numbers(tmp_path: Path, capsys):
-    """Train on smooth periodic clips. Compare held-out normal, jumps and freezes."""
+    """Mr. Spiky encoding. Train on smooth periodic clips. Compare held-out normal, jumps and freezes."""
     clips = [periodic_clip(300, 1 + i % 3, i) for i in range(6)]
-    _train(clips, tmp_path)
+    _train(clips, tmp_path, encoding="shift")
     model = load_model(tmp_path)
     held_base = periodic_base(600, 3, 999)
     held = add_deltas(held_base)
@@ -474,11 +479,20 @@ def test_separation_numbers(tmp_path: Path, capsys):
     assert freeze_in[1] > 0.5 and freeze_in[1] > 3 * normal[1]
 
 
-# ---- Optional "onoff" encoding (not from Mr. Spiky, off by default) ------------
+# ---- The two input encodings: "onoff" (default) and "shift" (Mr. Spiky, opt-in) ----
 
-def test_default_encoding_is_mr_spiky_shift(model_dir: Path):
-    assert json.loads((model_dir / "threshold.json").read_text())["encoding"] == "shift"
-    assert load_model(model_dir).net.fc1.in_features == FEATURE_DIM
+def test_default_encoding_is_onoff(model_dir: Path):
+    assert json.loads((model_dir / "threshold.json").read_text())["encoding"] == "onoff"
+    assert load_model(model_dir).net.fc1.in_features == 2 * FEATURE_DIM
+
+
+def test_shift_encoding_of_mr_spiky_is_opt_in(tmp_path: Path):
+    train(RANDOM_CLIPS, tmp_path, epochs=1, encoding="shift")
+    model = load_model(tmp_path)
+    assert model.net.fc1.in_features == FEATURE_DIM
+    assert model.meta["encoding"] == "shift"
+    s = model.score(random_clip(50, 3, 40))
+    assert s.shape == (50, 3) and s.min() >= 0.0 and s.max() <= 1.0
 
 
 def test_unknown_encoding_is_rejected(tmp_path: Path):

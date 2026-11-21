@@ -44,7 +44,7 @@ from .sync import sync_score
 
 DEFAULT_MODELS = "models/dance"
 SCORERS = ("spiking", "baseline")
-DEFAULT_SCORER = "baseline"
+DEFAULT_SCORER = "spiking"
 P90 = 0.90              # scores are percentiles, so the p90 threshold is constant
 EMIT_EVERY = 3          # windows per live update: 3 * 33 ms = about 10 updates a second
 BUFFER_WINDOWS = 90     # live context given to the model: about 3 seconds

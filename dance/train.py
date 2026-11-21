@@ -176,7 +176,7 @@ def train(
     seed: int = 0,
     steps_per_bin: int = STEPS_PER_BIN,
     settle_steps: int = SETTLE_STEPS,
-    encoding: str = "shift",
+    encoding: str = "onoff",
     regions: list[str] | None = None,
     verbose: bool = False,
 ) -> None:
@@ -188,8 +188,10 @@ def train(
     seed: seed for the weight init, the clip order and the rate coding.
     steps_per_bin: rate-coded spike steps per time bin in training.
     settle_steps: sequence-mode steps for the adaptive thresholds to settle.
-    encoding: "shift" is the input encoding of Mr. Spiky. "onoff" is optional
-        and not from Mr. Spiky: see `dance/spiky/encode.py`, change 6.
+    encoding: "onoff" (default) gives two inputs for each whitened value, so
+        a deviation in either direction raises an input. It is not from Mr.
+        Spiky: see `dance/spiky/encode.py`, change 6. "shift" is the input
+        encoding of Mr. Spiky. It is opt-in, and it does not detect a freeze.
     regions: optional, how the dancer boxes of each clip were found ("poses"
         or "strips"). It is only recorded in threshold.json.
 
@@ -372,8 +374,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="worker processes for the event and feature work")
     p.add_argument("--epochs", type=int, default=EPOCHS, help="spiking scorer: training epochs")
     p.add_argument("--seed", type=int, default=0, help="spiking scorer: random seed")
-    p.add_argument("--encoding", choices=ENCODINGS, default="shift",
-                   help="spiking scorer. shift: the input encoding of Mr. Spiky; onoff: rectified, see encode.py")
+    p.add_argument("--encoding", choices=ENCODINGS, default="onoff",
+                   help="spiking scorer. onoff (default): rectified, see encode.py; "
+                        "shift: the input encoding of Mr. Spiky, opt-in")
     args = p.parse_args(argv)
 
     from dance import baseline

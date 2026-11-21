@@ -70,7 +70,7 @@ def samples(tmp_path_factory) -> dict[str, Sample]:
     return out
 
 
-@pytest.fixture(scope="module", params=["spiking", "spiking-onoff", "baseline"])
+@pytest.fixture(scope="module", params=["spiking", "spiking-shift", "baseline"])
 def model(request, samples, tmp_path_factory):
     """Train one time for each scorer, then load. Both scorers have the same contract."""
     clips = [samples[name].features for name in TRAIN_PLAN]
@@ -82,9 +82,9 @@ def model(request, samples, tmp_path_factory):
         from dance.spiky import load_model
         from dance.train import train
         if request.param == "spiking":
-            train(clips, out_dir)                       # the contract call: encoding of Mr. Spiky
+            train(clips, out_dir)                       # the contract call: on/off encoding, the default
         else:
-            train(clips, out_dir, encoding="onoff")     # the opt-in on/off input encoding
+            train(clips, out_dir, encoding="shift")     # the opt-in input encoding of Mr. Spiky
     print(f"\n=== scorer: {request.param} ===")
     loaded = load_model(out_dir)
     loaded.scorer_name = request.param
@@ -92,15 +92,16 @@ def model(request, samples, tmp_path_factory):
 
 
 SPIKING_KNOWN_FAULT = (
-    "The spiking scorer with the input encoding of Mr. Spiky counts only activity above "
-    "the normal level. It does not detect a freeze, and not a jump when the rate is "
-    "relative to the dancer's own mean. See PROGRESS.md."
+    "Known failure of the opt-in Mr. Spiky input encoding (shift): each input is 0.5 plus a "
+    "small signal and all weights are positive. A value below the mean lowers the current, so "
+    "the score counts only activity above the normal level. It does not detect a freeze or a "
+    "jump. See the README."
 )
 
 
 def known_spiking_fault(request, model) -> None:
-    """Mark the test as an expected failure for the spiking scorer. The numbers are still printed."""
-    if model.scorer_name == "spiking":
+    """Mark the test as a known failure for the Mr. Spiky encoding. The numbers are still printed."""
+    if model.scorer_name == "spiking-shift":
         request.applymarker(pytest.mark.xfail(reason=SPIKING_KNOWN_FAULT, strict=False))
 
 

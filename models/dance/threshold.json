@@ -4,16 +4,16 @@
   "method": "anomaly: p90 of baseline-relative membrane attribution over the normal clips (sequence-SNN, ECDF percentile)",
   "normal_stats": {
     "n": 3785,
-    "mean": 0.15442410111427307,
-    "std": 0.11360055953264236,
+    "mean": 0.2481463998556137,
+    "std": 0.18194285035133362,
     "min": 0.0,
-    "p50": 0.16968242824077606,
-    "p90": 0.2842820882797241,
-    "p95": 0.3271624445915222,
-    "p99": 0.38909801840782166,
-    "max": 0.6923068761825562
+    "p50": 0.25161585211753845,
+    "p90": 0.5010643005371094,
+    "p95": 0.5498250126838684,
+    "p99": 0.6168131828308105,
+    "max": 0.8325502872467041
   },
-  "n_distinct_raw_scores": 3533,
+  "n_distinct_raw_scores": 3742,
   "n_clips": 5,
   "n_clips_given": 5,
   "bins_per_clip": [
@@ -42,7 +42,7 @@
   ],
   "bin_ms": 33,
   "feature_dim": 26,
-  "encoding": "shift",
+  "encoding": "onoff",
   "epochs": 6,
   "seed": 0,
   "steps_per_bin": 5,
@@ -52,35 +52,35 @@
   "target_rate": 0.1,
   "topk_fraction": 0.15,
   "activity": {
-    "hidden": 0.09994014352560043,
-    "output": 0.09733322262763977,
-    "hidden_neuron_min": 0.09933950006961823,
-    "hidden_neuron_max": 0.10066050291061401,
-    "output_neuron_min": 0.09220607578754425,
-    "output_neuron_max": 0.10092470049858093
+    "hidden": 0.10428707301616669,
+    "output": 0.10780218243598938,
+    "hidden_neuron_min": 0.09881109744310379,
+    "hidden_neuron_max": 0.10858652740716934,
+    "output_neuron_min": 0.1035667136311531,
+    "output_neuron_max": 0.11122853308916092
   },
   "activity_in_target": true,
   "thresholds": {
-    "hidden_mean": 20.527542114257812,
-    "hidden_min": 20.51032829284668,
-    "hidden_max": 20.550365447998047,
-    "output_mean": 18.997806549072266,
-    "output_min": 18.907798767089844,
-    "output_max": 19.067829132080078
+    "hidden_mean": 5.822210311889648,
+    "hidden_min": 5.6770758628845215,
+    "hidden_max": 5.936690330505371,
+    "output_mean": 16.86358642578125,
+    "output_min": 16.82938003540039,
+    "output_max": 16.92856788635254
   },
   "weights": {
     "fc1": {
       "mean": 0.25,
-      "std": 0.018438532948493958,
-      "min": 0.20023120939731598,
-      "max": 0.3014524281024933,
+      "std": 0.03500759229063988,
+      "min": 0.13671354949474335,
+      "max": 0.37911880016326904,
       "fraction_zero": 0.0,
       "fraction_at_max": 0.0,
       "histogram_10_bins_0_to_1": [
         0,
-        0,
-        3323,
-        5,
+        497,
+        5668,
+        491,
         0,
         0,
         0,
@@ -90,17 +90,17 @@
       ]
     },
     "fc2": {
-      "mean": 0.25,
-      "std": 0.012169676832854748,
-      "min": 0.20953495800495148,
-      "max": 0.2890511155128479,
+      "mean": 0.2499999850988388,
+      "std": 0.016398217529058456,
+      "min": 0.19872942566871643,
+      "max": 0.30343255400657654,
       "fraction_zero": 0.0,
       "fraction_at_max": 0.0,
       "histogram_10_bins_0_to_1": [
         0,
-        0,
-        4096,
-        0,
+        2,
+        4092,
+        2,
         0,
         0,
         0,
@@ -111,11 +111,11 @@
     }
   },
   "baselines": {
-    "hidden_mean": 0.09994014352560043,
-    "hidden_max": 0.10066050291061401,
-    "output_mean": 0.09733322262763977,
-    "output_max": 0.10092470049858093
+    "hidden_mean": 0.10428707301616669,
+    "hidden_max": 0.10858652740716934,
+    "output_mean": 0.10780218243598938,
+    "output_max": 0.11122853308916092
   },
-  "train_seconds": 22.1,
+  "train_seconds": 23.44,
   "source": "STDP rule, whitening, attribution, calibration: github.com/Arpan-206/mr-spiky"
 }

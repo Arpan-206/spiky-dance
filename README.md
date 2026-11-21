@@ -20,7 +20,7 @@ The code in `dance/spiky/` comes from Mr. Spiky. Mr. Spiky scores lines of code.
 
 Kept from Mr. Spiky: the layer sizes (128 and 32 neurons), the learning rule (STDP) and its settings, the ZCA whitening, the per-neuron baselines, the percentile calibration and the p90 threshold.
 
-Changed, as a design change: an adaptive threshold for each neuron, top-k inhibition in each layer, and weight normalisation after each learning update. The network now has 26 inputs. Each copied file has a note that lists the changes.
+Changed, as a design change: an adaptive threshold for each neuron, top-k inhibition in each layer, weight normalisation after each learning update, and the on/off input encoding. The network has 52 inputs: two for each of the 26 features. Each copied file has a note that lists the changes.
 
 No file of the old code-review model is loaded. Training fits everything again. There is no mock scoring mode: if the trained files are missing, scoring stops with an error.
 
@@ -39,10 +39,40 @@ Both scorers use the same features and give scores with the same meaning.
 
 | Scorer | Flag | Method |
 |---|---|---|
-| Baseline (default) | `--scorer baseline` | A statistical distance (Mahalanobis distance) to the clean clips. No network. |
-| Spiking network | `--scorer spiking` | The network from Mr. Spiky, with changes |
+| Spiking network (default) | `--scorer spiking` | The network from Mr. Spiky, with changes, and the on/off input encoding |
+| Baseline | `--scorer baseline` | A statistical distance (Mahalanobis distance) to the clean clips. No network. |
 
-**The baseline is the default. The spiking network does not beat it on the real-clip table.** With the input encoding of Mr. Spiky, the spiking scorer does not detect a freeze or jerky motion. With the opt-in on/off encoding (`--encoding onoff` at training), it is about equal to the baseline. `PROGRESS.md` has the measured numbers.
+### Comparison
+
+Each cell is "mean score / fraction of bins above p90". Training used 5 clean real clips of 1 dancer. `PROGRESS.md` has more tables.
+
+| Real clip (1 dancer) | Spiking, on/off encoding (default) | Baseline | Spiking, Mr. Spiky encoding |
+|---|---|---|---|
+| Held-out normal | 0.468 / 0.074 | 0.455 / 0.082 | 0.515 / 0.170 |
+| Abnormal: freeze for the last 8 s | 0.670 / 0.406 | 0.647 / 0.406 | 0.470 / 0.135 |
+| Abnormal: jerky, a jump every 8 frames | 0.991 / 0.992 | 0.976 / 0.911 | 0.288 / 0.041 |
+
+| Synthetic clip | Spiking, on/off encoding (default) | Baseline | Spiking, Mr. Spiky encoding |
+|---|---|---|---|
+| Held-out normal | 0.489 / 0.095 | 0.462 / 0.103 | 0.513 / 0.112 |
+| Sudden jumps | 0.800 / 0.529 | 0.934 / 0.880 | 0.437 / 0.070 |
+| Freeze | 0.806 / 0.599 | 0.872 / 0.789 | 0.409 / 0.116 |
+
+What the tables show:
+
+- The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
+- **The weights of the network do not specialise.** After training, all weights are almost equal: their standard deviation is about 0.02 around 0.25. So each neuron computes almost the same sum of its inputs. The score is close to a sum of absolute deviations with a leaky memory. That is the same kind of signal as the baseline. The learning rule (STDP) adds little.
+
+### The two input encodings of the spiking scorer
+
+| Encoding | Flag at training | State |
+|---|---|---|
+| On/off | `--encoding onoff` | Default. Each whitened value `y` gives two inputs, `relu(y)` and `relu(-y)`. A deviation in either direction raises an input. |
+| Mr. Spiky | `--encoding shift` | Opt-in. Known failures, see below. |
+
+**Known failures of the Mr. Spiky encoding.** 4 tests are marked as known failures (`xfail`): the jump, freeze and three-dancer end-to-end tests, and the separation test in `tests/test_train.py`.
+
+The cause: Mr. Spiky adds 0.5 to each whitened value and clamps it to 0..1. So each input is a constant 0.5 plus a small signal, and all weights are positive. A value below the mean lowers the input current. The score counts only activity above the normal level. So this encoding does not detect a freeze, and it does not detect jerky motion.
 
 ## Commands
 
@@ -56,18 +86,18 @@ The command holds out one clip, fits on the others, and prints the scores of the
 
 | Option | Effect |
 |---|---|
-| `--scorer baseline` | Fit only the baseline. This is faster. |
+| `--scorer baseline` | Fit only the baseline. This is faster. `--scorer spiking` fits only the network. |
 | `--holdout NAME` | Hold out this clip. The default is the last clip by name. |
 | `--no-holdout` | Train on all clips. No check is printed. |
 | `--max-seconds S` | Use only the first S seconds of each clip. |
-| `--encoding onoff` | Spiking scorer: use the on/off input encoding. |
+| `--encoding shift` | Spiking scorer: use the input encoding of Mr. Spiky. The default is `onoff`. |
 
 Score one clip. This is the one-command path. All output goes in the episode folder `episodes/<clip name>/`.
 
 ```bash
 uv run python -m dance.run clip.mp4 --episodes-dir episodes --dancers 1
 uv run python -m dance.run episodes/clip                        # the target is an episode folder
-uv run python -m dance.run clip.mp4 --scorer spiking            # the other scorer
+uv run python -m dance.run clip.mp4 --scorer baseline           # the other scorer
 ```
 
 Score only, without the events file. The source is a clip or an eventify `.h5` file.

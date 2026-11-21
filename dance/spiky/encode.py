@@ -18,14 +18,14 @@ Changes for spiky-dance:
   5. The dance features have 13 values and their 13 bin-to-bin deltas
      (FEATURE_DIM = 26). `normalize` maps a delta d to (d + 1) / 2, and the
      polarity delta to (d + 2) / 4.
-  6. OPTIONAL, OFF BY DEFAULT: `encoding="onoff"`. The default "shift" is the
-     formula of Mr. Spiky. It adds 0.5 to each whitened value, so each input
+  6. THE DEFAULT IN TRAINING (the user's decision): `encoding="onoff"`. The
+     opt-in "shift" is the formula of Mr. Spiky. It adds 0.5 to each whitened value, so each input
      has the mean 0.5 and a deviation below the mean LOWERS the input. With
      "onoff", each whitened value y gives two inputs, relu(y) and relu(-y),
      times ONOFF_GAIN, clamped to 0..1. Then the inputs are near 0 for a
      normal bin, and a deviation in EITHER direction raises an input.
-     This is a change to Mr. Spiky's encoding. It is not one of the three
-     network changes that the user allowed, thus it is not the default.
+     This is a change to Mr. Spiky's encoding. `dance.train.train` uses it
+     by default. The functions in this file keep "shift" as their own default.
      The encoding name is saved in the whitening artefact.
   4. `encode_sequence` keeps the dancers as the batch dimension (the original
      had batch 1). `encode_rate` is `encode_batch` for a clip: it rate-codes
