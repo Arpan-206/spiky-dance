@@ -87,7 +87,7 @@ The command holds out one clip, fits on the others, and prints the scores of the
 | Option | Effect |
 |---|---|
 | `--scorer baseline` | Fit only the baseline. This is faster. `--scorer spiking` fits only the network. |
-| `--holdout NAME` | Hold out this clip. The default is the last clip by name. |
+| `--holdout NAME` | Hold out this clip. NAME is the file name with its suffix. The default is the last clip by name. |
 | `--no-holdout` | Train on all clips. No check is printed. |
 | `--max-seconds S` | Use only the first S seconds of each clip. |
 | `--encoding shift` | Spiking scorer: use the input encoding of Mr. Spiky. The default is `onoff`. |
@@ -100,7 +100,15 @@ uv run python -m dance.run episodes/clip                        # the target is 
 uv run python -m dance.run clip.mp4 --scorer baseline           # the other scorer
 ```
 
-Score only, without the events file. The source is a clip or an eventify `.h5` file.
+Write a preview video of a scored episode. This is a fallback view: the events (ON yellow, OFF blue), the box of each dancer, and the score and sync traces with the threshold line.
+
+```bash
+uv run python -m dance.run clip.mp4 --preview                   # scores, then episodes/clip/preview.mp4
+uv run python -m dance.preview episodes/clip                    # for an episode that has scores
+uv run python -m dance.score --live --dancers 2 --preview       # the same view in a window, q stops
+```
+
+Score only, without the events file. This also writes `scores.json`, and `sync.npy` for 2 or more dancers. The source is a clip or an eventify `.h5` file.
 
 ```bash
 uv run python -m dance.score clip.mp4 --out scores.npy --dancers 1
@@ -220,6 +228,7 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 | `dance/train.py` | Training of both scorers on clean clips |
 | `dance/score.py` | Scoring, offline and live |
 | `dance/run.py` | One command for a clip |
+| `dance/preview.py` | Fallback preview video and live preview window |
 | `models/dance/` | Trained files |
 | `tests/` | Tests and synthetic clips |
 

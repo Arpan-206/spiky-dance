@@ -16,6 +16,7 @@ Offline:
 Live:
     python -m dance.score --live [--device 0] [--models models/dance]
         [--scorer spiking|baseline] [--dancers N] [--duration S] [--warmup-frames 30] [--json]
+        [--preview]
     Reads the webcam through eventify. Gives one update about 10 times a second.
 
 Dancer numbers are column numbers of the scores array. They start at 0. With
@@ -420,14 +421,28 @@ def score_live(
     as_json: bool = False,
     model: Any = None,
     scorer: str = DEFAULT_SCORER,
+    preview: bool = False,
 ) -> np.ndarray:
-    """Webcam -> rolling scores on stdout. Returns the scores of the session."""
+    """Webcam -> rolling scores on stdout. Returns the scores of the session.
+
+    With `preview`, a window shows the events, the dancer boxes and the traces.
+    """
     if model is None:
         model = load(model_dir, scorer)
     info = stream.probe_source(device)
     regions = Regions(info.sensor_shape, None, dancers)
     windows = source_windows(device, info, duration_s=duration_s, warmup_frames=warmup_frames, live=True)
     emit = json_emitter(sys.stdout) if as_json else line_emitter(sys.stdout)
+    if preview:
+        from . import preview as pv
+
+        renderer = pv.PreviewRenderer(info.sensor_shape, dancers, P90, with_sync=dancers >= 2, scroll=True)
+        windows = pv.live_tap(windows, regions, renderer, pv.window_show())
+        print_update = emit
+
+        def emit(update: dict) -> None:
+            renderer.set_scores(update["latest"], update["sync"])
+            print_update(update)
     width, height = info.sensor_size
     print(
         f"live: device {device}, sensor {width}x{height}, {dancers} dancer(s), {scorer} scorer. "
@@ -469,6 +484,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--duration", type=float, default=None, help="live: stop after S seconds")
     p.add_argument("--warmup-frames", type=int, default=30, help="live: frames to drop while exposure settles")
     p.add_argument("--json", action="store_true", help="live: one JSON object per line on stdout")
+    p.add_argument("--preview", action="store_true", help="live: show the events, boxes and traces in a window")
     args = p.parse_args(argv)
 
     if args.live == (args.source is not None):
@@ -485,6 +501,7 @@ def main(argv: list[str] | None = None) -> None:
                 warmup_frames=args.warmup_frames,
                 as_json=args.json,
                 scorer=args.scorer,
+                preview=args.preview,
             )
             return
         scores, sync, summary = score_clip_full(

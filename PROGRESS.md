@@ -23,7 +23,8 @@ The default scorer is the spiking network with the on/off input encoding. This i
 | Scoring offline, episode folders | Runs | Pass |
 | Live mode on the real webcam | Runs, tested by hand | Loop tested with a video file |
 | One-command training with a held-out check | Runs | Error paths tested |
-| Full test suite | 111 pass, 4 known failures | About 75 s |
+| Preview video and live preview window | Run | Pass. The live window is not tested by hand. |
+| Full test suite | 117 pass, 4 known failures | 75 to 90 s |
 
 ## Real-clip table
 
@@ -102,8 +103,8 @@ The weights do not specialise. With the on/off encoding the score is close to a 
 
 | Run | Time |
 |---|---|
-| One-command run of a 25 s real clip, baseline | 2.2 s |
-| Training, both scorers, 5 real clips of 25 s | 17 to 40 s |
+| One-command run of a 25 s real clip | 2 to 7 s |
+| Training, both scorers, 5 real clips of 25 s | 17 to 41 s |
 | Live mode | 10.1 updates per second |
 
 ## Live mode on the real webcam

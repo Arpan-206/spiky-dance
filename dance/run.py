@@ -1,7 +1,7 @@
 """One command: clip -> episode folder with events.h5, scores.npy, scores_meta.json.
 
     python -m dance.run CLIP [--episodes-dir episodes] [--scorer spiking|baseline]
-        [--models models/dance] [--dancers N] [--max-seconds S]
+        [--models models/dance] [--dancers N] [--max-seconds S] [--preview]
     python -m dance.run EPISODE_DIR [same options]
 
 All output for a clip goes in `<episodes-dir>/<clip name>/`. The clip name is
@@ -18,6 +18,7 @@ Written to the episode folder:
     events.h5          eventify HDF5 export, coordinates in sensor pixels
     scores.npy         float32 (bins, dancers), values 0 to 1
     sync.npy           float32 (bins, dancers), values 0 to 2; only for 2 or more dancers
+    preview.mp4        with --preview: the event view with boxes and score traces
     scores_meta.json   bin_ms, bins, sensor size, scorer, threshold, ranking
 
 `meta.json` and `pose3d.npz` are never written or changed here.
@@ -152,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--scorer", choices=score.SCORERS, default=score.DEFAULT_SCORER, help="which trained scorer to use")
     p.add_argument("--dancers", type=int, default=1, help="number of vertical strips when the episode has no poses.npy")
     p.add_argument("--max-seconds", type=float, default=None, help="use only the first S seconds")
+    p.add_argument("--preview", action="store_true", help="also write preview.mp4 in the episode folder")
     args = p.parse_args(argv)
 
     try:
@@ -177,6 +179,10 @@ def main(argv: list[str] | None = None) -> None:
     print(score.regions_line(summary))
     print(f"scores meta: {summary['scores_meta_file']}")
     print(f"elapsed: {summary['elapsed_s']:.1f} s")
+    if args.preview:
+        from .preview import write_preview
+
+        print(f"preview: {write_preview(summary['episode'])}")
 
 
 if __name__ == "__main__":
