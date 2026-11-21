@@ -235,3 +235,69 @@ For each dancer it is 1 minus the correlation between the feature series of the 
 Video files are never committed. `.gitignore` excludes `*.mp4` and `*.mov`.
 
 See `PROGRESS.md` for what runs and what is untested.
+
+## The other half: pose, robot, steam and the TV video (`vlma/`)
+
+`vlma/` turns the same clip into a pose skeleton, a Unitree G1 humanoid in MuJoCo that replays the arms, a sauna steam stress test, and one combined video for the TV. It writes into the same `episodes/<clip name>/` folder as the scorer.
+
+### What is real and what is simulated
+
+| Stream | Status |
+|---|---|
+| Phone video | Real |
+| Event-camera stream | Simulated from the video with eventify |
+| Pose skeleton | Estimated by MediaPipe Pose Landmarker |
+| Humanoid | A kinematic replay of the pose with joint limits. Not a controller, no balance. |
+| Unusualness score | The spiking scorer above, on simulated events |
+| Steam | A simulated veil over the image. Not fitted to real steam. |
+
+Every tile in the combined video carries one of these labels. A missing stream shows "not available yet".
+
+### Setup
+
+```bash
+uv sync --group vlma
+```
+
+Two downloads go in `assets/` (not committed):
+
+- `assets/pose_landmarker_full.task`: MediaPipe Pose Landmarker (full), from the MediaPipe models page.
+- `assets/mujoco_menagerie/unitree_g1/`: from github.com/google-deepmind/mujoco_menagerie.
+
+Tests: `uv run --group vlma pytest tests/test_pose.py tests/test_robot.py tests/test_steam.py tests/test_viewer.py`. The pose and viewer tests that need `clips/sample_walk.mp4` (`one-by-one-person-detection.mp4` from github.com/intel-iot-devkit/sample-videos) skip without it.
+
+### One command
+
+```bash
+uv run --group vlma python -m vlma.run clip.mp4 \
+  --events-cmd "eventify export {clip} {out}/events.h5 --interp 3 --sensor-size 320,180" \
+  --score-cmd "python -m dance.score {clip} --out {out}/scores.npy --dancers 1" \
+  --steam 0,10,20,30,40,60
+```
+
+Stages in order: pose, robot, events, score, combined video, steam sweep. Output in `episodes/<clip name>/`: `panel.mp4` (the TV video), `poses.npy`, `meta.json`, `pose3d.npz`, `skeleton.mp4`, `robot.npz`, `robot.mp4`, `events.h5`, `scores.npy`, `steam_metrics.csv`, `steam_curve.png`. Steam levels go in `episodes/<clip name>__steam<NN>/`.
+
+On macOS the robot render needs a normal user session (MuJoCo offscreen rendering uses the window server).
+
+### Steam result so far
+
+A 6-second test clip of one person standing (not a dance), simulated steam:
+
+| Steam level | Frames with the person tracked | Mean unusualness |
+|---|---|---|
+| 0 | 100% | 0.89 |
+| 20 | 100% | 0.98 |
+| 40 | 32% | 0.98 |
+| 60 | 0% | 0.98 |
+
+Pose tracking breaks between levels 30 and 60. The scorer flags the steam as unusual from level 20 and stays at its ceiling. A real macarena clip will replace this table.
+
+### Layout
+
+| Path | Content |
+|---|---|
+| `vlma/pose.py` | MediaPipe video mode, up to 3 dancers, left-to-right identity, COCO-17 in pixels plus 3D world landmarks |
+| `vlma/robot.py` | Arm angles from the 3D pose onto the G1, smoothed and clamped, rendered offscreen |
+| `vlma/steam.py` | Drifting steam veil, sweep over levels, tracking and drift metrics, plot |
+| `vlma/viewer.py` | 2x2 TV video plus score strip, reads `events.h5`, `scores.npy`, `sync.npy`, `scores_meta.json` |
+| `vlma/run.py` | Runs the stages in order |
