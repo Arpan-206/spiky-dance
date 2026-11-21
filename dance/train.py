@@ -503,9 +503,11 @@ def main(argv: list[str] | None = None) -> None:
     except (ValueError, DegenerateCalibrationError) as err:
         raise SystemExit(f"error: {err}")
 
+    from dance import display
+
+    display.save_train_info(args.out, [c.regions or "strips" for c in train_clips])
     loo_text = None
     if args.leave_one_out:
-        from dance import display
 
         loo_text, remaps = leave_one_out(train_clips, bad_clips, tuple(models), epochs=args.epochs,
                                          seed=args.seed, encoding=args.encoding)

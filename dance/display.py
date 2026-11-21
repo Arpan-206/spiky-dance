@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 
 DISPLAY_FILE = "display.json"
+TRAIN_INFO_FILE = "train_info.json"
 CLEAN_DISPLAY = 90.0
 BAD_DISPLAY = 30.0
 DEFAULT_CLEAN_REF = 0.50     # a clip the model did not see has a mean near 0.5
@@ -80,6 +81,24 @@ def load_remap(model_dir: str | Path, scorer: str) -> dict:
         if scorer in remaps:
             return remaps[scorer]
     return default_remap()
+
+
+def save_train_info(model_dir: str | Path, regions: list[str]) -> Path:
+    """Record which dancer regions the training clips used: "strips", "poses" or "mixed"."""
+    kinds = sorted(set(regions))
+    info = {"regions": kinds[0] if len(kinds) == 1 else "mixed", "clips": len(regions)}
+    path = Path(model_dir) / TRAIN_INFO_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(info, indent=2) + "\n")
+    return path
+
+
+def trained_regions(model_dir: str | Path) -> str | None:
+    """ "strips", "poses" or "mixed"; None if the model folder does not say."""
+    path = Path(model_dir) / TRAIN_INFO_FILE
+    if not path.exists():
+        return None
+    return json.loads(path.read_text()).get("regions")
 
 
 def display_score(mean_score: float, remap: dict) -> float:

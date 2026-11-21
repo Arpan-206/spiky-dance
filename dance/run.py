@@ -2,6 +2,7 @@
 
     python -m dance.run CLIP [--episodes-dir episodes] [--scorer spiking|baseline]
         [--models models/dance] [--dancers N] [--max-seconds S] [--preview]
+        [--regions auto|poses|strips]
     python -m dance.run EPISODE_DIR [same options]
 
 All output for a clip goes in `<episodes-dir>/<clip name>/`. The clip name is
@@ -29,6 +30,11 @@ Written to the episode folder:
 
 `meta.json` and `pose3d.npz` are never written or changed here.
 
+Dancer regions (`--regions`): scoring must use the same kind of region as the
+training, or every clip looks unusual. `auto` (default) reads `train_info.json`
+in the model folder: models trained on vertical strips are scored with strips,
+also when the episode has a `poses.npy`. `poses` and `strips` force one kind.
+
 The trained scorer is loaded before the event work. When its artefacts are
 missing, the program stops with an error and writes no file.
 """
@@ -44,7 +50,7 @@ from typing import Any
 import numpy as np
 
 from . import score, stream
-from .display import display_score, load_remap
+from .display import display_score, load_remap, trained_regions
 from .features import read_pose_meta
 
 EVENTS_NAME = "events.h5"
@@ -100,6 +106,7 @@ def run_clip(
     max_seconds: float | None = None,
     model: Any = None,
     scorer: str = score.DEFAULT_SCORER,
+    regions: str = "auto",
 ) -> dict:
     """Clip or episode folder -> events.h5, scores.npy, scores_meta.json. Returns the summary.
 
@@ -115,6 +122,14 @@ def run_clip(
     poses_path = episode / POSES_NAME
     meta_path = episode / POSE_META_NAME
     has_poses = poses_path.exists()
+    regions_note = None
+    if regions == "strips" or (regions == "auto" and trained_regions(model_dir) == "strips"):
+        if has_poses:
+            regions_note = ("poses.npy is present but not used: " +
+                            ("--regions strips" if regions == "strips" else "these models were trained on vertical strips"))
+        has_poses = False
+    elif regions == "poses" and not has_poses:
+        raise FileNotFoundError(f"--regions poses, but {poses_path} does not exist")
     pose_meta = read_pose_meta(meta_path) if meta_path.exists() else None
     dancers_from = "--dancers"
     if dancers is None:
@@ -169,6 +184,7 @@ def run_clip(
     (episode / SCORES_META_NAME).write_text(json.dumps(scores_meta, indent=2) + "\n")
 
     summary.update(
+        regions_note=regions_note,
         dancers_from=dancers_from,
         episode=str(episode),
         events_file=str(events_path),
@@ -190,6 +206,9 @@ def main(argv: list[str] | None = None) -> None:
                         "default: `dancers` in meta.json, else 1")
     p.add_argument("--max-seconds", type=float, default=None, help="use only the first S seconds")
     p.add_argument("--preview", action="store_true", help="also write preview.mp4 in the episode folder")
+    p.add_argument("--regions", choices=("auto", "poses", "strips"), default="auto",
+                   help="dancer regions. auto: the kind that the models were trained with (train_info.json), "
+                        "else poses when poses.npy exists")
     args = p.parse_args(argv)
 
     try:
@@ -200,6 +219,7 @@ def main(argv: list[str] | None = None) -> None:
             dancers=args.dancers,
             max_seconds=args.max_seconds,
             scorer=args.scorer,
+            regions=args.regions,
         )
     except FileNotFoundError as err:
         score.stop(str(err))
@@ -212,7 +232,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"sync: {Path(summary['episode']) / SYNC_NAME}")
     else:
         print("sync: not written. The sync score needs 2 or more dancers.")
-    print(score.regions_line(summary))
+    print(score.regions_line(summary) if not summary["regions_note"]
+          else f"regions: vertical strips, {len(summary['dancers'])} dancer(s). {summary['regions_note']}.")
     if summary["regions"] == "strips":
         print(f"dancer count: {len(summary['dancers'])}, from {summary['dancers_from']}")
     print(f"scores meta: {summary['scores_meta_file']}")

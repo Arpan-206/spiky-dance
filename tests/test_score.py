@@ -233,7 +233,7 @@ def test_run_on_an_episode_folder_uses_its_poses_and_meta(tmp_path, fake_model, 
     episode = _episode_with_poses(tmp_path)
     their_meta = (episode / "meta.json").read_bytes()
 
-    run.main([str(episode), "--scorer", "baseline"])
+    run.main([str(episode), "--scorer", "baseline", "--models", str(tmp_path / "no_train_info")])
 
     meta = json.loads((episode / "scores_meta.json").read_text())
     assert meta["regions"] == "poses" and meta["dancers"] == 2
@@ -249,6 +249,39 @@ def test_run_on_an_episode_folder_uses_its_poses_and_meta(tmp_path, fake_model, 
     assert meta["sync"]["file"] == "sync.npy" and meta["sync"]["window_s"] == 2.0
     assert len(meta["sync"]["mean_per_dancer"]) == 2
     assert "pose boxes" in capsys.readouterr().out
+
+
+def test_run_scores_with_the_regions_that_the_models_were_trained_with(tmp_path, fake_model, capsys):
+    """Models trained on strips must be scored with strips, also when the episode has poses.npy."""
+    from dance import display
+
+    episode = _episode_with_poses(tmp_path)
+    strips_models = tmp_path / "strips_models"
+    display.save_train_info(strips_models, ["strips", "strips"])
+    run.main([str(episode), "--models", str(strips_models)])            # auto
+    meta = json.loads((episode / "scores_meta.json").read_text())
+    assert meta["regions"] == "strips" and meta["pose_scale"] is None
+    assert meta["dancers"] == 1                                         # --dancers default, meta.json has no count
+    assert "poses.npy is present but not used" in capsys.readouterr().out
+
+    run.main([str(episode), "--models", str(strips_models), "--regions", "poses"])     # forced
+    assert json.loads((episode / "scores_meta.json").read_text())["regions"] == "poses"
+
+    pose_models = tmp_path / "pose_models"
+    display.save_train_info(pose_models, ["poses"])
+    run.main([str(episode), "--models", str(pose_models)])              # auto, models trained on poses
+    assert json.loads((episode / "scores_meta.json").read_text())["regions"] == "poses"
+
+    run.main([str(episode), "--models", str(pose_models), "--regions", "strips"])
+    assert json.loads((episode / "scores_meta.json").read_text())["regions"] == "strips"
+
+
+def test_committed_models_say_how_they_were_trained():
+    from dance import display
+
+    assert display.trained_regions("models/room") == "strips"
+    assert display.trained_regions("models/dance") == "strips"
+    assert display.load_remap("models/room", "spiking")["fitted"] is True
 
 
 def test_run_on_an_episode_folder_with_only_events(moving_clip, tmp_path, fake_model):
