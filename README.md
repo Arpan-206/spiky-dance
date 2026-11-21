@@ -44,7 +44,9 @@ Both scorers use the same features and give scores with the same meaning.
 
 ### Comparison
 
-Each cell is "mean score / fraction of bins above p90". Training used 5 clean real clips of 1 dancer. `PROGRESS.md` has more tables.
+Each cell is "mean score / fraction of bins above p90". For this comparison, training used 5 clean real clips of 1 dancer. The models in `models/dance/` are newer: they use 16 classic clips from YouTube (`data/youtube_clips.csv`). `PROGRESS.md` has their numbers and more tables.
+
+Two limits, measured on real clips: the scorers do not detect bad dancing as such, and the sync score does not work on real clips. See `PROGRESS.md`.
 
 | Real clip (1 dancer) | Spiking, on/off encoding (default) | Baseline | Spiking, Mr. Spiky encoding |
 |---|---|---|---|
@@ -96,7 +98,7 @@ Folder layout:
 
 The command holds out some clean clips, fits on the others, and prints a table by dancer count: the held-out clean clips and the bad clips. For a held-out clean clip, expect a mean near 0.4 to 0.5 and a fraction near 0.10. The command prints a note when a held-out clip is outside the range 0.30 to 0.60. That happens when the clip differs from the training clips, or when there are few training clips.
 
-The models in `models/dance/` were trained with `--no-holdout`, so they use all clean clips. Options:
+The models in `models/dance/` were trained with `--no-holdout` on the classic clips of `data/youtube_clips.csv`, so they use all clean clips. Options:
 
 | Option | Effect |
 |---|---|
