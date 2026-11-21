@@ -1,0 +1,31 @@
+\definecolor{ink}{HTML}{1B2333}
+\definecolor{navy}{HTML}{1F3A5F}
+\definecolor{teal}{HTML}{2A9D8F}
+\definecolor{amber}{HTML}{E9A23B}
+\definecolor{coral}{HTML}{D1495B}
+\definecolor{slate}{HTML}{8A94A6}
+\definecolor{mist}{HTML}{E8ECF2}
+\definecolor{paper}{HTML}{F6F8FB}
+\colorlet{realc}{teal}
+\colorlet{simc}{coral}
+\colorlet{estc}{amber}
+\colorlet{repc}{navy}
+\tikzset{
+  >={Stealth[length=2mm,width=1.5mm]},
+  base/.style={font=\sffamily\scriptsize, align=center, inner sep=2.5pt, text=ink},
+  box/.style={base, rectangle, rounded corners=2pt, draw=ink!70, line width=0.45pt, fill=white, minimum height=8.5mm, text width=21mm},
+  real/.style={box, path picture={\fill[realc] (path picture bounding box.north west) rectangle ([xshift=1.6pt]path picture bounding box.south west);}},
+  sim/.style={box, path picture={\fill[simc] (path picture bounding box.north west) rectangle ([xshift=1.6pt]path picture bounding box.south west);}},
+  est/.style={box, path picture={\fill[estc] (path picture bounding box.north west) rectangle ([xshift=1.6pt]path picture bounding box.south west);}},
+  rep/.style={box, path picture={\fill[repc] (path picture bounding box.north west) rectangle ([xshift=1.6pt]path picture bounding box.south west);}},
+  file/.style={base, rectangle, draw=slate, fill=paper, font=\ttfamily\tiny, minimum height=4.6mm, inner sep=1.8pt},
+  flow/.style={->, draw=ink!80, line width=0.55pt},
+  flowd/.style={->, draw=slate, line width=0.5pt, dashed},
+  lane/.style={draw=none, fill=mist!60, rounded corners=4pt},
+  lanelabel/.style={font=\sffamily\tiny\bfseries, text=slate, anchor=north west},
+  note/.style={font=\sffamily\tiny, text=ink!80, align=center, inner sep=1pt},
+  device/.style={base, rectangle, rounded corners=3pt, draw=ink, line width=0.6pt, fill=white, font=\sffamily\scriptsize},
+  irwave/.style={draw=coral, line width=0.6pt, decorate, decoration={snake, amplitude=0.5mm, segment length=1.8mm, post length=1.5mm}},
+  cross/.style={draw=coral, line width=1pt},
+}
+\DeclareRobustCommand{\legendchip}[2]{\tikz[baseline=-0.6ex]\fill[#1] (0,-0.75ex) rectangle (1.6pt,0.95ex);\,{\sffamily\scriptsize #2}}
