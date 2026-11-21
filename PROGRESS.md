@@ -1,6 +1,6 @@
 # Progress
 
-Last update: 15:55.
+Last update: 16:25.
 
 ## Decision on the default scorer
 
@@ -9,6 +9,90 @@ The default scorer is the spiking network with the on/off input encoding. This i
 - The spiking scorer with the on/off encoding and the baseline are about equal. The spiking scorer is a little better on the real clips. The baseline is better on the synthetic clips.
 - The weights of the network do not specialise. The learning rule adds little.
 - The input encoding of Mr. Spiky (`--encoding shift`) is opt-in. It fails: it gives the freeze clip and the jerky clip a lower score than the normal clip. Its 4 tests are marked as known failures.
+
+## YouTube clip set (16:25)
+
+The list of URLs and cut times is in `data/youtube_clips.csv`. No video is in the repo. I looked at 53 videos and kept 13: most were crowds, cartoons, games, or videos with cuts.
+
+Only clips of the classic macarena steps are "normal". Other versions (dance workout, challenge, free style) are in a separate folder and are not used for training.
+
+| Group | Videos | Clips | Use |
+|---|---|---|---|
+| Classic, 1 dancer | 3 performers | 14 | 11 for training, 1 whole video (3 clips) held out |
+| Classic, 2 dancers | 1 video | 2 | Training. There is no second video to hold out. |
+| Classic, 3 dancers | 0 | 0 | No classic clip with three dancers was found |
+| Bad dancing, 2 dancers | 3 videos | 3 | Never trained on. Each is 13 to 17 s. |
+| Other versions, 1 dancer | 1 video | 5 | Scored only |
+| Other versions, 2 dancers | 2 videos | 6 | Scored only |
+| Other versions, 3 dancers | 3 videos | 9 | Scored only |
+
+Each cell below is "mean score / fraction of bins above p90". The models for this table were trained with the whole held-out video left out.
+
+### 1 dancer
+
+| Clips | Spiking | Baseline | How much to trust it |
+|---|---|---|---|
+| Held-out classic, a performer the model never saw (3 clips) | 0.471 / 0.033 | 0.518 / 0.037 | Good: 2 training performers, 1 unseen performer |
+| Other version, free style (5 clips) | 0.740 / 0.241 | 0.701 / 0.326 | One performer only |
+
+A classic clip of an unseen performer scores as normal. A free-style dance scores clearly higher.
+
+### 2 dancers
+
+| Clips | Spiking | Baseline | How much to trust it |
+|---|---|---|---|
+| Bad dancing (3 clips, 6 dancers) | 0.451 / 0.133 | 0.439 / 0.089 | Low: the training has 38 s of one 2-dancer video |
+| Other versions (6 clips) | 0.274 / 0.014 | 0.237 / 0.001 | Low |
+
+Bad dancing, for each dancer:
+
+| Clip | Dancer | Spiking | Baseline |
+|---|---|---|---|
+| fail_grass | 0 | 0.290 / 0.020 | 0.256 / 0.008 |
+| fail_grass | 1 | 0.315 / 0.018 | 0.288 / 0.005 |
+| fail_stairs | 0 | 0.455 / 0.008 | 0.499 / 0.014 |
+| fail_stairs | 1 | 0.302 / 0.012 | 0.268 / 0.004 |
+| fail_wall | 0 | 0.456 / 0.043 | 0.466 / 0.053 |
+| fail_wall | 1 | 0.931 / 0.774 | 0.888 / 0.497 |
+
+**The scorers do not detect bad dancing in these clips.** Only 1 of 6 dancers scores high. The other 5 score like a normal dancer or lower. The other dance versions with 2 dancers also score lower than a normal clip. The score reacts to unusual motion in the box of a dancer: a freeze, a sudden jump, an unusual place of the motion. It does not check the dance steps.
+
+### 3 dancers
+
+| Clips | Spiking | Baseline | Mean sync score | How much to trust it |
+|---|---|---|---|---|
+| Other versions (9 clips, 3 videos) | 0.388 / 0.023 | 0.397 / 0.015 | 0.77 to 0.96 | Do not trust this row |
+
+Do not trust the 3-dancer row. No classic clip with three dancers is in the training, and none is in the test. The three videos are other dance versions, and one of them is 17 s long.
+
+### Sync score on real clips
+
+| Real clip | Dancers in step? | Mean sync score, each dancer |
+|---|---|---|
+| Three dancers in a room, dance-workout version, clip 1 | Yes | 0.896, 0.928, 0.934 |
+| Same video, clip 2 | Yes | 0.952, 0.956, 0.946 |
+| Same video, clip 3 | Yes | 0.866, 0.894, 0.875 |
+
+**The sync score does not work on real clips.** Dancers in step get about 0.9, which means "no relation". On the synthetic clips the same dancers got 0.24. The features of one 33 ms bin are too noisy on real video for a correlation over 2 s.
+
+### Live webcam score in the demo room, before and after
+
+One strip, 6 s, the built-in camera, the same scene.
+
+| Scorer | Before (trained on 1 performer) | After (trained on the classic YouTube set) |
+|---|---|---|
+| Spiking | 0.684 / 0.189 | 0.806 / 0.139 |
+| Baseline | 0.515 / 0.038 | 0.739 / 0.028 |
+
+The mean score in the room did not go down. It went up. The fraction above the threshold went down a little. The camera saw the room as it was, not a dancer.
+
+### Training time
+
+| Run | Time |
+|---|---|
+| Both scorers, 13 clips of 25 s, with a held-out video | 89 s (events and features 31 s) |
+
+This is above the 60 s target. `--scorer baseline` or `--max-seconds` brings it below.
 
 ## What runs
 
@@ -26,7 +110,9 @@ The default scorer is the spiking network with the on/off input encoding. This i
 | Preview video and live preview window | Run | Pass. The live window is not tested by hand. |
 | Full test suite | 117 pass, 4 known failures | 75 to 90 s |
 
-## Real-clip table
+## Real-clip table, first model (15:50)
+
+These numbers come from the first models, trained on 5 clips of one performer. The models in `models/dance/` are newer: see the YouTube clip set above.
 
 Training: 5 clean clips, 1 dancer, 25 s each. The test clips come from a held-out segment of the same video. The two abnormal clips are that segment, changed with ffmpeg. Each cell is "mean score / fraction of bins above p90".
 
